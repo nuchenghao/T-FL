@@ -176,8 +176,8 @@ class Message:
             trainer.initrain(self.response.get("numLocalTrain"),
                              self.response.get("batchSize"),
                              self.response.get("learningRate"),
-                             self.response.get("model"))
+                             self.response.get("value"))
         elif self.response.get('action') == 'download':
-            print(f"the accuracy is {self.response.get('accuracy')}")
+            print(f"the accuracy is {self.response.get('result')}")
             msg.finished = self.response.get('finished')
         self.close()

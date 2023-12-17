@@ -1,6 +1,6 @@
 class messageInServer:
     def __init__(self, totalEpoch):
-        self.finished = False
+        # self.finished = False
         self.currentEpoch = 0
         self.totalEpoch = totalEpoch
 

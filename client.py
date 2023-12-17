@@ -71,7 +71,28 @@ def client():
     #     f"number of local train is {trainer.numLocalTrain}, learning rate is {trainer.learningRate}, batch size is {trainer.batchSize}")
     # print(trainer.net.state_dict())
     while True:
-        trainer.train()
+        trainer.train()  # 训练
+
+        # 通信
+        request = create_request('upload', trainer.getNetParams())
+        connection(host, port, request)
+        try:
+            while True:
+                events = sel.select(timeout=-1)
+                for key, mask in events:
+                    message = key.data
+                    try:
+                        message.process_events(mask, trainer, msg)
+                    except Exception:
+                        print(
+                            f"Main: Error: Exception for {message.addr}:\n"
+                            f"{traceback.format_exc()}"
+                        )
+                        message.close()
+                if not sel.get_map():
+                    break
+        except Exception:
+            print("Caught Exception in register, exiting")
         if msg.finished:
             break
 

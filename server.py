@@ -62,15 +62,7 @@ try:
                         f"{traceback.format_exc()}"
                     )
                     message.close()
-                # else:
-                #     if trainer.established == True and len(sel.get_map()) == 1:
-                #         # 结束一轮训练
-                #         epoch += 1
-                #         if epoch > 0:
-                #             print(f"Have finished epoch {epoch}!")
-                #         else:
-                #             print("Established!!!")
-        if msg.finished():
+        if msg.finish() == True and len(sel.get_map()) == 1:
             break
 
 except KeyboardInterrupt:

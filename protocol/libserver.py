@@ -133,10 +133,9 @@ class Message:
         print(f"Received request from {self.addr}")
 
         if self.request.get('action') == 'register':
-            # trainer.established = 0
-            pass
+            print("Establied successfully!")
         elif self.request.get('action') == 'upload':
-            trainer.getNewGloablModel(trainer.getNetParams(self.request.get('model')))
+            trainer.getNewGloablModel(self.request.get('value'))
             self.accuracy = trainer.evaluate_accuracy()
             msg.addEpoch()
         self._set_selector_events_mask("w")
@@ -161,7 +160,7 @@ class Message:
                 'numLocalTrain': trainer.numLocalTrain,
                 'batchSize': trainer.batchSize,
                 'learningRate': trainer.learningRate,
-                'model': trainer.getNetParams()
+                'value': trainer.getNetParams()
             }
             content_encoding = "utf-8"
             response = {
@@ -172,7 +171,7 @@ class Message:
             content = {
                 "action": "download",
                 "result": self.accuracy,
-                "finished": msg.finished()
+                "finished": msg.finish()
             }
 
             content_encoding = "utf-8"

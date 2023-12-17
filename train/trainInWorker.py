@@ -54,6 +54,9 @@ class trainInWorker():
         cmp = astype(y_hat, y.dtype) == y
         return float(reduce_sum(astype(cmp, y.dtype)))
 
+    def getNetParams(self):
+        return [val.cpu().numpy().tolist() for _, val in self.net.state_dict().items()]
+
     def getNewGloablModel(self, listOfParameter):
         listOfNdarrat = [np.array(l, dtype=np.float64) for l in listOfParameter]
         params_dict = zip(self.net.state_dict().keys(), listOfNdarrat)
