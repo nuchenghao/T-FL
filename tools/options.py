@@ -18,3 +18,5 @@ def args_server():
     parser.add_argument("--numLocalTrain", type=int, default=5, help="The number of local training")
     parser.add_argument("--batchSize", type=int, default=256, help="The batch size")
     parser.add_argument("--learningRate", type=float, default=0.01, help="The learning rate")
+    args = parser.parse_args()
+    return args

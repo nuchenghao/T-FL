@@ -91,13 +91,13 @@ class Message:
         self._send_buffer += message
         self._request_queued = True
 
-    def process_events(self, mask, trainer):
+    def process_events(self, mask, trainer, msg):
         if mask & selectors.EVENT_READ:
-            self.read(trainer)
+            self.read(trainer, msg)
         if mask & selectors.EVENT_WRITE:
             self.write()
 
-    def read(self, trainer):
+    def read(self, trainer, msg):
         self._read()
 
         if self._jsonheader_len is None:
@@ -109,7 +109,7 @@ class Message:
 
         if self.jsonheader:
             if self.response is None:
-                self.process_response(trainer)
+                self.process_response(trainer, msg)
 
     def write(self):
         if not self._request_queued:
@@ -163,7 +163,7 @@ class Message:
                 if reqhdr not in self.jsonheader:
                     raise ValueError(f"Missing required header '{reqhdr}'.")
 
-    def process_response(self, trainer):
+    def process_response(self, trainer, msg):
         content_len = self.jsonheader["content-length"]
         if not len(self._recv_buffer) >= content_len:
             return
@@ -179,4 +179,5 @@ class Message:
                              self.response.get("model"))
         elif self.response.get('action') == 'download':
             print(f"the accuracy is {self.response.get('accuracy')}")
+            msg.finished = self.response.get('finished')
         self.close()

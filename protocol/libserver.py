@@ -70,14 +70,14 @@ class Message:
         tiow.close()
         return obj
 
-    def process_events(self, mask, trainer):
+    def process_events(self, mask, trainer, msg):
         if mask & selectors.EVENT_READ:
-            self.read(trainer)
+            self.read(trainer, msg)
 
         if mask & selectors.EVENT_WRITE:
-            self.write(trainer)
+            self.write(trainer, msg)
 
-    def read(self, trainer):
+    def read(self, trainer, msg):
         self._read()
 
         if self._jsonheader_len is None:
@@ -89,12 +89,12 @@ class Message:
 
         if self.jsonheader:
             if self.request is None:
-                self.process_request(trainer)
+                self.process_request(trainer, msg)
 
-    def write(self, trainer):
+    def write(self, trainer, msg):
         if self.request:
             if not self.response_created:
-                self.create_response(trainer)
+                self.create_response(trainer, msg)
 
         self._write(trainer)
 
@@ -121,7 +121,7 @@ class Message:
                 if reqhdr not in self.jsonheader:
                     raise ValueError(f"Missing required header '{reqhdr}'.")
 
-    def process_request(self, trainer):
+    def process_request(self, trainer, msg):
         content_len = self.jsonheader["content-length"]
         if not len(self._recv_buffer) >= content_len:
             return
@@ -138,10 +138,11 @@ class Message:
         elif self.request.get('action') == 'upload':
             trainer.getNewGloablModel(trainer.getNetParams(self.request.get('model')))
             self.accuracy = trainer.evaluate_accuracy()
+            msg.addEpoch()
         self._set_selector_events_mask("w")
 
     def _create_message(
-            self, *, content_bytes, content_type, content_encoding
+            self, *, content_bytes, content_encoding
     ):
         jsonheader = {
             "byteorder": sys.byteorder,
@@ -153,14 +154,14 @@ class Message:
         message = message_hdr + jsonheader_bytes + content_bytes
         return message
 
-    def _create_response_json_content(self, trainer):
+    def _create_response_json_content(self, trainer, msg):
         if self.request.get('action') == "register":
             content = {
                 'action': 'register',
                 'numLocalTrain': trainer.numLocalTrain,
                 'batchSize': trainer.batchSize,
                 'learningRate': trainer.learningRate,
-                'model': trainer.getNetParams(trainer.net)
+                'model': trainer.getNetParams()
             }
             content_encoding = "utf-8"
             response = {
@@ -170,7 +171,8 @@ class Message:
         elif self.request.get('action') == "upload":
             content = {
                 "action": "download",
-                "result": self.accuracy
+                "result": self.accuracy,
+                "finished": msg.finished()
             }
 
             content_encoding = "utf-8"
@@ -181,8 +183,8 @@ class Message:
 
         return response
 
-    def create_response(self, trainer):
-        response = self._create_response_json_content(trainer)
+    def create_response(self, trainer, msg):
+        response = self._create_response_json_content(trainer, msg)
         message = self._create_message(**response)
         self.response_created = True
         self._send_buffer += message

@@ -9,6 +9,7 @@ from net import LeNet
 from protocol import libserver
 from train import trainInServer
 from tools import options
+from tools import msgInServer
 
 sel = selectors.DefaultSelector()
 
@@ -30,6 +31,7 @@ numGlobalTrain = args.numGlobalTrain
 net = LeNet.lenet()
 device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')  # server上的训练设备
 trainer = trainInServer.Trainer(numLocalTrain, batchSize, learningRate, numGlobalTrain, net, device, 'test')
+msg = msgInServer.messageInServer(numGlobalTrain)
 
 host, port = args.host, args.port
 
@@ -53,21 +55,22 @@ try:
             else:
                 message = key.data
                 try:
-                    message.process_events(mask, trainer)
+                    message.process_events(mask, trainer, msg)
                 except Exception:
                     print(
                         f"Main: Error: Exception for {message.addr}:\n"
                         f"{traceback.format_exc()}"
                     )
                     message.close()
-                else:
-                    if trainer.established == True and len(sel.get_map()) == 1:
-                        epoch += 1
-                        if epoch > 0:
-                            print(f"Have finished epoch {epoch}!")
-                        else:
-                            print("Established!!!")
-        if epoch == numGlobalTrain:
+                # else:
+                #     if trainer.established == True and len(sel.get_map()) == 1:
+                #         # 结束一轮训练
+                #         epoch += 1
+                #         if epoch > 0:
+                #             print(f"Have finished epoch {epoch}!")
+                #         else:
+                #             print("Established!!!")
+        if msg.finished():
             break
 
 except KeyboardInterrupt:

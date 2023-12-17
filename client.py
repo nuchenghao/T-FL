@@ -6,6 +6,7 @@ from net import LeNet
 from train import trainInWorker
 from protocol import libclient
 from tools import options
+from tools import msgInClient
 
 sel = selectors.DefaultSelector()
 
@@ -38,6 +39,7 @@ learningRate = 0
 
 net = LeNet.lenet()
 trainer = trainInWorker.trainInWorker(net)
+msg = msgInClient.messageInClient()
 
 
 def registrt():
@@ -50,7 +52,7 @@ def registrt():
             for key, mask in events:
                 message = key.data
                 try:
-                    message.process_events(mask, trainer)
+                    message.process_events(mask, trainer, msg)
                 except Exception:
                     print(
                         f"Main: Error: Exception for {message.addr}:\n"
@@ -63,9 +65,16 @@ def registrt():
         print("Caught Exception in register, exiting")
 
 
-
-
-
 def client():
     registrt()
-    trainer.train()
+    # print(
+    #     f"number of local train is {trainer.numLocalTrain}, learning rate is {trainer.learningRate}, batch size is {trainer.batchSize}")
+    # print(trainer.net.state_dict())
+    while True:
+        trainer.train()
+        if msg.finished:
+            break
+
+
+if __name__ == "__main__":
+    client()

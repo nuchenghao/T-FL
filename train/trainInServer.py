@@ -18,7 +18,7 @@ class Trainer:
     def __init__(self, numLocalTrain, batchSize, learningRate, numGlobalTrain, net, device, which):
         self.numLocalTrain = numLocalTrain
         self.batchSize = batchSize
-        self.learning_rate = learningRate
+        self.learningRate = learningRate
         self.numGlobalTrain = numGlobalTrain
         self.net = net
         self.data_iter = self.load_data_fashion_mnist(batchSize, which)
@@ -66,6 +66,7 @@ class Trainer:
         params_dict = zip(self.net.state_dict().keys(), listOfNdarrat)
         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
         self.net.load_state_dict(state_dict)
+        self.net.to(self.device)
 
     def evaluate_accuracy(self):
         if isinstance(self.net, nn.Module):
