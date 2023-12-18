@@ -15,6 +15,7 @@ sel = selectors.DefaultSelector()
 
 
 def accept_wrapper(sock):
+    # 为每个新连接创建socket
     conn, addr = sock.accept()  # Should be ready to read
     print(f"Accepted connection from {addr}")
     conn.setblocking(False)
@@ -34,6 +35,7 @@ trainer = trainInServer.Trainer(numLocalTrain, batchSize, learningRate, numGloba
 msg = msgInServer.messageInServer(numGlobalTrain)
 
 host, port = args.host, args.port
+numCliets = args.numClient
 
 # 创建socket监听设备
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

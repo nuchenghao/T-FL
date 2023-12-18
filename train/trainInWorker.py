@@ -8,6 +8,7 @@ from torch import nn
 from torchvision import transforms
 
 from tools import utils
+from tqdm import tqdm
 
 argmax = lambda x, *args, **kwargs: x.argmax(*args, **kwargs)
 astype = lambda x, *args, **kwargs: x.type(*args, **kwargs)
@@ -67,11 +68,11 @@ class trainInWorker():
     def train(self):
         metric = utils.Accumulator(2)
         loss = nn.CrossEntropyLoss()
-        for epoch in range(self.numLocalTrain):
-            print(f"In local training epoch {epoch + 1}")
+
+        for epoch in tqdm(range(self.numLocalTrain)):
             self.net.train()
+
             for i, (X, y) in enumerate(self.data_iter):
-                # self.timer.start()
                 self.optimizer.zero_grad()
                 X, y = X.to(self.device), y.to(self.device)
                 y_hat = self.net(X)
@@ -82,6 +83,5 @@ class trainInWorker():
                     metric.add(self.accuracy(y_hat, y), X.shape[0])
 
         train_acc = metric[0] / metric[1]
-        # self.timer.stop()
+
         print(f'train acc is {train_acc:.3f}')
-        # return self.timer.sum()  # 返回训练时间
