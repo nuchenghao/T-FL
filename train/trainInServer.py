@@ -62,7 +62,7 @@ class Trainer:
         return metric[0] / metric[1]
 
     def aggregatrion(self, modellist):
-        length = (modellist)
+        length = len(modellist)
         for name, param in self.net.net.named_parameters():
             param.data = sum([model.state_dict()[name] for model in modellist]) / length
         print(f"The accuracy of the aggregated models is {self.evaluate_accuracy()}")

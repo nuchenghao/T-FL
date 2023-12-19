@@ -141,7 +141,7 @@ class Message:
             print(f"Received {self.request.get('name')} upload request from {self.addr}")
             self.net.getModel(self.request.get('value'))  # 得到client的模型
             state.addClient()
-        self._set_selector_events_mask("w")  # 挂起该client，等待其他client
+        self._set_selector_events_mask("hold")  # 挂起该client，等待其他client
 
     def _create_message(
             self, *, content_bytes, content_encoding
@@ -173,7 +173,7 @@ class Message:
         elif self.request.get('action') == "upload":
             content = {
                 "action": "download",
-                "value": state.net.getNetParams,
+                "value": state.net.getNetParams(),
                 "finished": state.finish()
             }
             content_encoding = "utf-8"

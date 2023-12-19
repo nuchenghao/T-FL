@@ -69,7 +69,8 @@ def registrt():
 
 def client():
     registrt()
-
+    trainer.initrain(state)
+    # print(trainer.numLocalTrain, trainer.batchSize, trainer.learningRate)
     while True:
         if state.finished:
             break
@@ -99,7 +100,4 @@ def client():
 
 if __name__ == "__main__":
     client()
-    # registrt()
-    # print(state.numLocalTrain, state.batchSize, state.learningRate)
-    # trainer.initrain(state)
-    # print(trainer.net.net.state_dict())
+
