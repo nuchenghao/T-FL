@@ -68,18 +68,17 @@ try:
                     message.close()
         if state.ready():  # 所有client就绪
             if state.register:
-                pass
-                # modellist = []
-                # socket_map = sel.get_map()  # 获取注册的socket和data的字典
-                # for fd, key in socket_map.items():
-                #     if key.data != None:
-                #         modellist.append(key.data.net.net)  # 获取网络
-                # trainer.aggregatrion(modellist)  # 聚合
-                # for fd, key in socket_map.items():
-                #     if key.data != None:
-                #         key.data.net = copy.deepcopy(state.net)
-                #         sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
-                # state.addEpoch()
+                modellist = []
+                socket_map = sel.get_map()  # 获取注册的socket和data的字典
+                for fd, key in socket_map.items():
+                    if key.data != None:
+                        modellist.append(key.data.net.net)  # 获取网络
+                trainer.aggregatrion(modellist)  # 聚合
+                for fd, key in socket_map.items():
+                    if key.data != None:
+                        key.data.net = copy.deepcopy(state.net)
+                        sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
+                state.addEpoch()
 
             else:
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
