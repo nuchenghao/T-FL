@@ -60,7 +60,6 @@ class Message:
                 self._send_buffer = self._send_buffer[sent:]
                 # Close when the buffer is drained. The response has been sent.
                 if sent and not self._send_buffer:
-
                     self.close()
 
     def _json_encode(self, obj, encoding):
@@ -139,6 +138,7 @@ class Message:
             print(f"Received {self.request.get('name')} register request from {self.addr}")
             state.addClient()
         elif self.request.get('action') == 'upload':
+            print(f"Received {self.request.get('name')} upload request from {self.addr}")
             self.net.getModel(self.request.get('value'))  # 得到client的模型
             state.addClient()
         self._set_selector_events_mask("hold")  # 挂起该client，等待其他client
@@ -164,7 +164,6 @@ class Message:
                 'batchSize': state.batchSize,
                 'learningRate': state.learningRate,
                 'value': state.net.getNetParams(),
-                # "finished": state.finish()  # 调试用
             }
             content_encoding = "utf-8"
             response = {
@@ -174,10 +173,9 @@ class Message:
         elif self.request.get('action') == "upload":
             content = {
                 "action": "download",
-                "value": self.accuracy,
+                "value": state.net.getNetParams,
                 "finished": state.finish()
             }
-
             content_encoding = "utf-8"
             response = {
                 "content_bytes": self._json_encode(content, content_encoding),

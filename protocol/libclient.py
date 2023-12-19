@@ -178,5 +178,7 @@ class Message:
             state.learningRate = self.response.get("learningRate")
             state.net.getModel(self.response.get('value'))
         elif self.response.get('action') == 'download':
-            pass
+            state.finished = self.response.get('finished')
+            if state.finished == False:
+                state.net.getModel(self.response.get('value'))  # 获得全局模型
         self.close()

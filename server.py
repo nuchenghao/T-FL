@@ -1,3 +1,4 @@
+import copy
 import sys
 import socket
 import selectors
@@ -35,8 +36,8 @@ numCliets = args.numClient
 device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')  # server上的训练设备
 globalNet = Net.trainNet(LeNet.lenet(), device)  # 全局网络
 
-trainer = trainInServer.Trainer(batchSize, globalNet, device, 'test')
-state = stateInServer.messageInServer(globalNet,numGlobalTrain,numCliets,numLocalTrain,batchSize,learningRate)
+trainer = trainInServer.Trainer(batchSize, globalNet, 'test')
+state = stateInServer.messageInServer(globalNet, numGlobalTrain, numCliets, numLocalTrain, batchSize, learningRate)
 
 # 创建socket监听设备
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -68,6 +69,18 @@ try:
         if state.ready():  # 所有client就绪
             if state.register:
                 pass
+                # modellist = []
+                # socket_map = sel.get_map()  # 获取注册的socket和data的字典
+                # for fd, key in socket_map.items():
+                #     if key.data != None:
+                #         modellist.append(key.data.net.net)  # 获取网络
+                # trainer.aggregatrion(modellist)  # 聚合
+                # for fd, key in socket_map.items():
+                #     if key.data != None:
+                #         key.data.net = copy.deepcopy(state.net)
+                #         sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
+                # state.addEpoch()
+
             else:
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
                 for fd, key in socket_map.items():
@@ -76,7 +89,9 @@ try:
                         sel.modify(key.fileobj, selectors.EVENT_WRITE, data)  # 将挂起的事件激活
                 state.register = True
 
-        if state.finish() and len(sel.get_map()):  # 训练完成且所有通信socket都已经完成
+            state.clearClient()
+
+        if state.finish() and len(sel.get_map()) == 1:  # 训练完成且所有通信socket都已经完成
             break
 
 except KeyboardInterrupt:

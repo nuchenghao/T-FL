@@ -50,7 +50,7 @@ def registrt():
     connection(host, port, request)
     try:
         while True:
-            events = sel.select(timeout=None)
+            events = sel.select(timeout=-1)
             for key, mask in events:
                 message = key.data
                 try:
@@ -71,10 +71,12 @@ def client():
     registrt()
 
     while True:
+        if state.finished:
+            break
         trainer.train()  # 训练
 
         # 通信
-        request = create_request('upload', trainer.getNetParams())
+        request = create_request(name, 'upload', trainer.net.getNetParams())
         connection(host, port, request)
         try:
             while True:
@@ -93,13 +95,11 @@ def client():
                     break
         except Exception:
             print("Caught Exception in register, exiting")
-        if state.finished:
-            break
 
 
 if __name__ == "__main__":
-    # client()
-    registrt()
-    print(state.numLocalTrain, state.batchSize, state.learningRate)
-    trainer.initrain(state)
-    print(trainer.net.net.state_dict())
+    client()
+    # registrt()
+    # print(state.numLocalTrain, state.batchSize, state.learningRate)
+    # trainer.initrain(state)
+    # print(trainer.net.net.state_dict())

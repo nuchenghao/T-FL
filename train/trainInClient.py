@@ -57,12 +57,12 @@ class trainInWorker():
         loss = nn.CrossEntropyLoss()
 
         for epoch in tqdm(range(self.numLocalTrain)):
-            self.net.train()
+            self.net.net.train()
 
             for i, (X, y) in enumerate(self.data_iter):
                 self.optimizer.zero_grad()
-                X, y = X.to(self.device), y.to(self.device)
-                y_hat = self.net(X)
+                X, y = X.to(self.net.device), y.to(self.net.device)
+                y_hat = self.net.net(X)
                 l = loss(y_hat, y)
                 l.backward()
                 self.optimizer.step()

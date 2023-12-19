@@ -15,11 +15,10 @@ reduce_sum = lambda x, *args, **kwargs: x.sum(*args, **kwargs)
 
 
 class Trainer:
-    def __init__(self, batchSize, net, device, which):
+    def __init__(self, batchSize, net, which):
         self.batchSize = batchSize
         self.net = net
         self.data_iter = self.load_data_fashion_mnist(batchSize, which)
-        self.device = device
         self.net.initNet()  # 初始化全局模型
 
     def load_data_fashion_mnist(self, batch_size, which, resize=None):
@@ -49,15 +48,21 @@ class Trainer:
 
     def evaluate_accuracy(self):
         if isinstance(self.net, nn.Module):
-            self.net.eval()  # 设置为评估模式
+            self.net.net.eval()  # 设置为评估模式
 
         metric = utils.Accumulator(2)
         with torch.no_grad():
             for X, y in self.data_iter:
                 if isinstance(X, list):
-                    X = [x.to(self.device) for x in X]
+                    X = [x.to(self.net.device) for x in X]
                 else:
-                    X = X.to(self.device)
-                y = y.to(self.device)
-                metric.add(self.accuracy(self.net(X), y), y.numel())
+                    X = X.to(self.net.device)
+                y = y.to(self.net.device)
+                metric.add(self.accuracy(self.net.net(X), y), y.numel())
         return metric[0] / metric[1]
+
+    def aggregatrion(self, modellist):
+        length = (modellist)
+        for name, param in self.net.net.named_parameters():
+            param.data = sum([model.state_dict()[name] for model in modellist]) / length
+        print(f"The accuracy of the aggregated models is {self.evaluate_accuracy()}")
