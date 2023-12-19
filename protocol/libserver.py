@@ -164,7 +164,7 @@ class Message:
                 'batchSize': state.batchSize,
                 'learningRate': state.learningRate,
                 'value': state.net.getNetParams(),
-                "finished": state.finish()  # 调试用
+                # "finished": state.finish()  # 调试用
             }
             content_encoding = "utf-8"
             response = {

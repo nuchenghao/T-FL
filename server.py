@@ -17,7 +17,7 @@ sel = selectors.DefaultSelector()
 def accept_wrapper(sock, state):
     # 为每个新连接创建socket
     conn, addr = sock.accept()  # Should be ready to read
-    print(f"Accepted connection from {addr}")
+    # print(f"Accepted connection from {addr}")
     conn.setblocking(False)
     message = libserver.Message(sel, conn, addr, state.net)
     sel.register(conn, selectors.EVENT_READ, data=message)
@@ -36,7 +36,7 @@ device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu
 globalNet = Net.trainNet(LeNet.lenet(), device)  # 全局网络
 
 trainer = trainInServer.Trainer(batchSize, globalNet, device, 'test')
-state = stateInServer.messageInServer(numGlobalTrain)
+state = stateInServer.messageInServer(globalNet,numGlobalTrain,numCliets,numLocalTrain,batchSize,learningRate)
 
 # 创建socket监听设备
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -26,3 +26,6 @@ class trainNet:
         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
         self.net.load_state_dict(state_dict)
         self.net.to(self.device)
+
+    def printNet(self):
+        print(self.net.state_dict())

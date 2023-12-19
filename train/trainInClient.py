@@ -23,17 +23,14 @@ class trainInWorker():
         self.net = net
         self.data_iter = None
         self.optimizer = None
-        self.device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')
-        # self.device = 'cpu'
         self.timer = utils.Timer()
 
-    def initrain(self, numLocalTrain, batchSize, learningRate, paramslist):
-        self.numLocalTrain = numLocalTrain
-        self.batchSize = batchSize
-        self.learningRate = learningRate
+    def initrain(self, state):
+        self.numLocalTrain = state.numLocalTrain
+        self.batchSize = state.batchSize
+        self.learningRate = state.learningRate
         self.data_iter = self.load_data_fashion_mnist(self.batchSize, 'train')
-        self.getNewGloablModel(paramslist)
-        self.optimizer = torch.optim.SGD(self.net.parameters(), lr=self.learningRate)
+        self.optimizer = torch.optim.SGD(self.net.net.parameters(), lr=self.learningRate)
 
     def load_data_fashion_mnist(self, batch_size, which, resize=None):
         trans = [transforms.ToTensor()]
@@ -54,16 +51,6 @@ class trainInWorker():
             y_hat = argmax(y_hat, axis=1)
         cmp = astype(y_hat, y.dtype) == y
         return float(reduce_sum(astype(cmp, y.dtype)))
-
-    def getNetParams(self):
-        return [val.cpu().numpy().tolist() for _, val in self.net.state_dict().items()]
-
-    def getNewGloablModel(self, listOfParameter):
-        listOfNdarrat = [np.array(l, dtype=np.float64) for l in listOfParameter]
-        params_dict = zip(self.net.state_dict().keys(), listOfNdarrat)
-        state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
-        self.net.load_state_dict(state_dict)
-        self.net.to(self.device)
 
     def train(self):
         metric = utils.Accumulator(2)

@@ -91,13 +91,13 @@ class Message:
         self._send_buffer += message
         self._request_queued = True
 
-    def process_events(self, mask, trainer, msg):
+    def process_events(self, mask, state):
         if mask & selectors.EVENT_READ:
-            self.read(trainer, msg)
+            self.read(state)
         if mask & selectors.EVENT_WRITE:
             self.write()
 
-    def read(self, trainer, msg):
+    def read(self, state):
         self._read()
 
         if self._jsonheader_len is None:
@@ -109,7 +109,7 @@ class Message:
 
         if self.jsonheader:
             if self.response is None:
-                self.process_response(trainer, msg)
+                self.process_response(state)
 
     def write(self):
         if not self._request_queued:
@@ -163,7 +163,7 @@ class Message:
                 if reqhdr not in self.jsonheader:
                     raise ValueError(f"Missing required header '{reqhdr}'.")
 
-    def process_response(self, trainer, msg):
+    def process_response(self, state):
         content_len = self.jsonheader["content-length"]
         if not len(self._recv_buffer) >= content_len:
             return
@@ -173,11 +173,10 @@ class Message:
         encoding = self.jsonheader["content-encoding"]
         self.response = self._json_decode(data, encoding)  # 得到传输的内容
         if self.response.get('action') == 'register':
-            trainer.initrain(self.response.get("numLocalTrain"),
-                             self.response.get("batchSize"),
-                             self.response.get("learningRate"),
-                             self.response.get("value"))
+            state.numLocalTrain = self.response.get("numLocalTrain")
+            state.batchSize = self.response.get("batchSize")
+            state.learningRate = self.response.get("learningRate")
+            state.net.getModel(self.response.get('value'))
         elif self.response.get('action') == 'download':
-            print(f"the accuracy is {self.response.get('result')}")
-            msg.finished = self.response.get('finished')
+            pass
         self.close()

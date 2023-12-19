@@ -2,19 +2,34 @@ import sys
 import socket
 import selectors
 import traceback
-from net import LeNet
-from train import trainInWorker
+
+import torch
+
+from net import LeNet, Net
+from train import trainInClient
 from protocol import libclient
 from tools import options
-from tools import msgInClient
+from tools import stateInClient
 
 sel = selectors.DefaultSelector()
 
+args = options.args_client()  # 解析客户端参数
 
-def create_request(action, value):
+host, port = args.server_ip, args.server_port
+name = args.name
+numLocalTrain = 0
+batchSzie = 0
+learningRate = 0
+device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')
+net = Net.trainNet(LeNet.lenet(), device)
+trainer = trainInClient.trainInWorker(net)
+state = stateInClient.messageInClient(net)
+
+
+def create_request(name, action, value):
     return dict(
         encoding="utf-8",
-        content=dict(action=action, value=value),
+        content=dict(name=name, action=action, value=value),
     )
 
 
@@ -29,30 +44,17 @@ def connection(host, port, request):
     sel.register(sock, events, data=message)
 
 
-args = options.args_client()  # 解析客户端参数
-
-host, port = args.server_ip, args.server_port
-
-numLocalTrain = 0
-batchSzie = 0
-learningRate = 0
-
-net = LeNet.lenet()
-trainer = trainInWorker.trainInWorker(net)
-msg = msgInClient.messageInClient()
-
-
 def registrt():
     # 向服务器注册
-    request = create_request("register", "")
+    request = create_request(name, "register", "")
     connection(host, port, request)
     try:
         while True:
-            events = sel.select(timeout=-1)
+            events = sel.select(timeout=None)
             for key, mask in events:
                 message = key.data
                 try:
-                    message.process_events(mask, trainer, msg)
+                    message.process_events(mask, state)
                 except Exception:
                     print(
                         f"Main: Error: Exception for {message.addr}:\n"
@@ -67,9 +69,7 @@ def registrt():
 
 def client():
     registrt()
-    # print(
-    #     f"number of local train is {trainer.numLocalTrain}, learning rate is {trainer.learningRate}, batch size is {trainer.batchSize}")
-    # print(trainer.net.state_dict())
+
     while True:
         trainer.train()  # 训练
 
@@ -82,7 +82,7 @@ def client():
                 for key, mask in events:
                     message = key.data
                     try:
-                        message.process_events(mask, trainer, msg)
+                        message.process_events(mask, state)
                     except Exception:
                         print(
                             f"Main: Error: Exception for {message.addr}:\n"
@@ -93,9 +93,13 @@ def client():
                     break
         except Exception:
             print("Caught Exception in register, exiting")
-        if msg.finished:
+        if state.finished:
             break
 
 
 if __name__ == "__main__":
-    client()
+    # client()
+    registrt()
+    print(state.numLocalTrain, state.batchSize, state.learningRate)
+    trainer.initrain(state)
+    print(trainer.net.net.state_dict())
