@@ -5,21 +5,21 @@ import traceback
 
 import torch
 
-from net import LeNet
+from net import LeNet, Net
 from protocol import libserver
 from train import trainInServer
 from tools import options
-from tools import msgInServer
+from tools import stateInServer
 
 sel = selectors.DefaultSelector()
 
 
-def accept_wrapper(sock):
+def accept_wrapper(sock, state):
     # 为每个新连接创建socket
     conn, addr = sock.accept()  # Should be ready to read
     print(f"Accepted connection from {addr}")
     conn.setblocking(False)
-    message = libserver.Message(sel, conn, addr)
+    message = libserver.Message(sel, conn, addr, state.net)
     sel.register(conn, selectors.EVENT_READ, data=message)
 
 
@@ -29,13 +29,14 @@ numLocalTrain = args.numLocalTrain
 batchSize = args.batchSize
 learningRate = args.learningRate
 numGlobalTrain = args.numGlobalTrain
-net = LeNet.lenet()
-device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')  # server上的训练设备
-trainer = trainInServer.Trainer(numLocalTrain, batchSize, learningRate, numGlobalTrain, net, device, 'test')
-msg = msgInServer.messageInServer(numGlobalTrain)
-
 host, port = args.host, args.port
 numCliets = args.numClient
+
+device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')  # server上的训练设备
+globalNet = Net.trainNet(LeNet.lenet(), device)  # 全局网络
+
+trainer = trainInServer.Trainer(batchSize, globalNet, device, 'test')
+state = stateInServer.messageInServer(numGlobalTrain)
 
 # 创建socket监听设备
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -47,24 +48,35 @@ lsock.setblocking(False)
 sel.register(lsock, selectors.EVENT_READ, data=None)
 
 # 已经训练的次数
-epoch = -1
+
 try:
     while True:
         events = sel.select(timeout=None)
         for key, mask in events:
             if key.data is None:  # 连接
-                accept_wrapper(key.fileobj)
+                accept_wrapper(key.fileobj, state)
             else:
                 message = key.data
                 try:
-                    message.process_events(mask, trainer, msg)
+                    message.process_events(mask, state)
                 except Exception:
                     print(
                         f"Main: Error: Exception for {message.addr}:\n"
                         f"{traceback.format_exc()}"
                     )
                     message.close()
-        if msg.finish() == True and len(sel.get_map()) == 1:
+        if state.ready():  # 所有client就绪
+            if state.register:
+                pass
+            else:
+                socket_map = sel.get_map()  # 获取注册的socket和data的字典
+                for fd, key in socket_map.items():
+                    data = key.data
+                    if data != None:
+                        sel.modify(key.fileobj, selectors.EVENT_WRITE, data)  # 将挂起的事件激活
+                state.register = True
+
+        if state.finish() and len(sel.get_map()):  # 训练完成且所有通信socket都已经完成
             break
 
 except KeyboardInterrupt:

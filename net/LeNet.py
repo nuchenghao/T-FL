@@ -59,14 +59,3 @@ class lenet(nn.Module):
         x = self.relu4(x)
         x = self.fc3(x)
         return x
-
-# net = nn.Sequential(
-#     nn.Conv2d(1, 6, kernel_size=5, padding=2), nn.ReLU(),
-#     nn.AvgPool2d(kernel_size=2, stride=2),  # 步长设置为2，这样就不会导致重叠
-#     nn.Conv2d(6, 16, kernel_size=5), nn.ReLU(),
-#     nn.AvgPool2d(kernel_size=2, stride=2),
-#     nn.Flatten(),
-#     nn.Linear(16 * 5 * 5, 120), nn.ReLU(),
-#     nn.Linear(120, 84), nn.ReLU(),
-#     nn.Linear(84, 10)
-# )

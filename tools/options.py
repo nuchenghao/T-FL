@@ -5,6 +5,7 @@ def args_client():
     parser = argparse.ArgumentParser()
     parser.add_argument('--server_ip', type=str, required=True, help="Ip of server")
     parser.add_argument('--server_port', type=int, required=True, help="Port of server")
+    parser.add_argument('--name', type=str, required=True, help="name of client")
     args = parser.parse_args()
     return args
 
