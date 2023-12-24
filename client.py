@@ -67,8 +67,32 @@ def registrt():
         print("Caught Exception in register, exiting")
 
 
+def requestData():
+    request = create_request(name, "requestData", "")
+    connection(host, port, request)
+    try:
+        while True:
+            events = sel.select(timeout=-1)
+            for key, mask in events:
+                message = key.data
+                try:
+                    message.process_events(mask, state)
+                except Exception:
+                    print(
+                        f"Main: Error: Exception for {message.addr}:\n"
+                        f"{traceback.format_exc()}"
+                    )
+                    message.close()
+            if not sel.get_map():
+                break
+    except Exception:
+        print("Caught Exception in requesting data, exiting")
+
+
 def client():
     registrt()
+    if state.splitDataset:  # 请求数据
+        requestData()
     trainer.initrain(state)
     # print(trainer.numLocalTrain, trainer.batchSize, trainer.learningRate)
     while True:
@@ -100,4 +124,3 @@ def client():
 
 if __name__ == "__main__":
     client()
-

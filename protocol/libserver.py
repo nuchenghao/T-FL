@@ -19,6 +19,7 @@ class Message:
         self.response_created = False
         self.accuracy = 0.0
         self.net = copy.deepcopy(net)  # 为每个连接(client)创建一个net，用于传递全局模型和接收client模型
+        self.data = None
 
     def _set_selector_events_mask(self, mode):
         """Set selector to listen for events: mode is 'r', 'w', or 'rw'."""
@@ -134,13 +135,18 @@ class Message:
         encoding = self.jsonheader["content-encoding"]
         self.request = self._json_decode(data, encoding)
 
-        if self.request.get('action') == 'register':
+        if self.request.get('action') == 'register':  # 注册的处理
             print(f"Received {self.request.get('name')} register request from {self.addr}")
             state.addClient()
-        elif self.request.get('action') == 'upload':
+        elif self.request.get('action') == 'requestData':
+            print(f"Received {self.request.get('name')} request for data from {self.addr}")
+            state.addClient()
+        elif self.request.get('action') == 'upload':  # 训练过程中的处理
             print(f"Received {self.request.get('name')} upload request from {self.addr}")
             self.net.getModel(self.request.get('value'))  # 得到client的模型
             state.addClient()
+
+        # 以下挂起的方式在win中有问题，服务端只能在linux中
         self._set_selector_events_mask("hold")  # 挂起该client，等待其他client
 
     def _create_message(
@@ -159,11 +165,24 @@ class Message:
     def _create_response_json_content(self, state):
         if self.request.get('action') == "register":
             content = {
+                # register阶段返回的内容
                 'action': 'register',
                 'numLocalTrain': state.numLocalTrain,
                 'batchSize': state.batchSize,
                 'learningRate': state.learningRate,
+                'splitDataSet': state.splitDataset,
                 'value': state.net.getNetParams(),
+            }
+            content_encoding = "utf-8"
+            response = {
+                "content_bytes": self._json_encode(content, content_encoding),
+                "content_encoding": content_encoding,
+            }
+
+        elif self.request.get('action') == "requestData":
+            content = {
+                'action': 'sendData',
+                'value': self.data
             }
             content_encoding = "utf-8"
             response = {
@@ -172,6 +191,7 @@ class Message:
             }
         elif self.request.get('action') == "upload":
             content = {
+                # upload阶段返回的内容
                 "action": "download",
                 "value": state.net.getNetParams(),
                 "finished": state.finish()

@@ -4,7 +4,9 @@ import socket
 import selectors
 import traceback
 
+import numpy as np
 import torch
+import torchvision
 
 from net import LeNet, Net
 from protocol import libserver
@@ -32,12 +34,14 @@ learningRate = args.learningRate
 numGlobalTrain = args.numGlobalTrain
 host, port = args.host, args.port
 numCliets = args.numClient
+splitDataSet = args.splitDataSet
 
 device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')  # server上的训练设备
 globalNet = Net.trainNet(LeNet.lenet(), device)  # 全局网络
 
 trainer = trainInServer.Trainer(batchSize, globalNet, 'test')
-state = stateInServer.messageInServer(globalNet, numGlobalTrain, numCliets, numLocalTrain, batchSize, learningRate)
+state = stateInServer.messageInServer(globalNet, numGlobalTrain, numCliets, numLocalTrain, batchSize, learningRate,
+                                      splitDataSet)
 
 # 创建socket监听设备
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -48,7 +52,20 @@ print(f"Listening on {(host, port)}")
 lsock.setblocking(False)
 sel.register(lsock, selectors.EVENT_READ, data=None)
 
-# 已经训练的次数
+
+def splitDataSet(clientlist):
+    train_data = torchvision.datasets.FashionMNIST(root='./fashionmnist', train=True, download=True)
+    numClients = len(clientlist)  # client数量
+    numSamples = len(train_data)
+    part_size = numSamples // numClients  # 每个client分到多少数据
+    indices = list(range(numSamples))
+    np.random.shuffle(indices)
+    indicesClient = []
+    for i in range(numClients):
+        indicesClient.append(indices[i * part_size:(i + 1) * part_size])
+    for i in range(numClients):
+        clientlist[i].data = [train_data[j] for j in indicesClient[i]]
+
 
 try:
     while True:
@@ -67,7 +84,22 @@ try:
                     )
                     message.close()
         if state.ready():  # 所有client就绪
-            if state.register:
+            if state.register and state.splitDataset:  # 注册过且需要划分数据
+                clientlist = []  # 用户列表，元素是Message
+                socket_map = sel.get_map()
+                for fd, key in socket_map.items():
+                    if key.data != None:
+                        clientlist.append(key.data)
+                splitDataSet(clientlist)
+
+                for fd, key in socket_map.items():
+                    if key.data != None:
+                        key.data.net = copy.deepcopy(state.net)
+                        sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
+
+                state.splitDataset = False
+
+            elif state.register:  # 注册过了，训练
                 modellist = []
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
                 for fd, key in socket_map.items():
@@ -80,7 +112,7 @@ try:
                         sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
                 state.addEpoch()
 
-            else:
+            else:  # 注册
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
                 for fd, key in socket_map.items():
                     data = key.data

@@ -176,7 +176,10 @@ class Message:
             state.numLocalTrain = self.response.get("numLocalTrain")
             state.batchSize = self.response.get("batchSize")
             state.learningRate = self.response.get("learningRate")
+            state.splitDataset = self.response.get("splitDataset")
             state.net.getModel(self.response.get('value'))
+        elif self.response.get('action') == 'sendData':
+            state.data = self.response.get("value")
         elif self.response.get('action') == 'download':
             state.finished = self.response.get('finished')
             if state.finished == False:
