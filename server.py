@@ -37,7 +37,26 @@ numCliets = args.numClient
 splitDataSet = args.splitDataSet
 record = args.record
 
-device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')  # server上的训练设备
+
+def get_available_gpu():
+    # 检查是否有可用的 GPU
+    if torch.cuda.is_available():
+        # 获取可用的 GPU 数量
+        gpu_count = torch.cuda.device_count()
+        # 遍历所有可用的 GPU，选择第一个未被使用的 GPU
+        for i in range(gpu_count):
+            if torch.cuda.get_device_properties(i).is_initialized():
+                continue  # 跳过已经被使用的 GPU
+            else:
+                selected_gpu = torch.device(f"cuda:{i}")
+                return selected_gpu
+        return torch.device(f"cuda:{gpu_count - 1}")  # 如果所有 GPU 都被使用，则选择最大序号的 GPU
+    else:
+        return torch.device("cpu")  # 如果没有可用的 GPU，则使用 CPU 进行训练
+
+
+device = get_available_gpu()  # server上的训练设备
+
 globalNet = Net.trainNet(LeNet.lenet(), device, record)  # 全局网络
 
 trainer = trainInServer.Trainer(batchSize, globalNet, 'test')
