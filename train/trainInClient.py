@@ -55,7 +55,7 @@ class trainInWorker():
     def train(self):
         metric = utils.Accumulator(2)
         loss = nn.CrossEntropyLoss()
-
+        self.net.net.to(self.net.device)
         for epoch in tqdm(range(self.numLocalTrain)):
             self.net.net.train()
 

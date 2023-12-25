@@ -6,6 +6,7 @@ def args_client():
     parser.add_argument('--server_ip', type=str, required=True, help="Ip of server")
     parser.add_argument('--server_port', type=int, required=True, help="Port of server")
     parser.add_argument('--name', type=str, required=True, help="name of client")
+    parser.add_argument("--record", type=bool, default=False, help="record the training model in each iteration")
     args = parser.parse_args()
     return args
 
@@ -20,5 +21,6 @@ def args_server():
     parser.add_argument("--batchSize", type=int, default=256, help="The batch size")
     parser.add_argument("--learningRate", type=float, default=0.01, help="The learning rate")
     parser.add_argument("--splitDataSet", type=bool, default=False, help="Whether to split dataset or not")
+    parser.add_argument("--record", type=bool, default=False, help="record the training model in each iteration")
     args = parser.parse_args()
     return args

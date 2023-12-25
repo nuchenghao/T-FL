@@ -1,7 +1,7 @@
 import sys
 import selectors
-import json
-import io
+import pickle
+
 import struct
 
 
@@ -14,8 +14,8 @@ class Message:
         self._recv_buffer = b""
         self._send_buffer = b""
         self._request_queued = False
-        self._jsonheader_len = None
-        self.jsonheader = None
+        self._header_len = None
+        self.header = None
         self.response = None
 
     def _set_selector_events_mask(self, mode):
@@ -55,28 +55,24 @@ class Message:
             else:
                 self._send_buffer = self._send_buffer[sent:]
 
-    def _json_encode(self, obj, encoding):
-        return json.dumps(obj, ensure_ascii=False).encode(encoding)
+    def _encode(self, obj):
+        return pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def _json_decode(self, json_bytes, encoding):
-        tiow = io.TextIOWrapper(
-            io.BytesIO(json_bytes), encoding=encoding, newline=""
-        )
-        obj = json.load(tiow)
-        tiow.close()
+    def _decode(self, pickle_byte, encoding):
+        obj = pickle.loads(pickle_byte, encoding=encoding)
         return obj
 
     def _create_message(
             self, *, content_bytes, content_encoding
     ):
-        jsonheader = {
+        header = {
             "byteorder": sys.byteorder,
             "content-encoding": content_encoding,
             "content-length": len(content_bytes),
         }
-        jsonheader_bytes = self._json_encode(jsonheader, "utf-8")
-        message_hdr = struct.pack(">H", len(jsonheader_bytes))
-        message = message_hdr + jsonheader_bytes + content_bytes
+        header_bytes = self._encode(header)
+        message_hdr = struct.pack(">H", len(header_bytes))
+        message = message_hdr + header_bytes + content_bytes
         return message
 
     def queue_request(self):
@@ -84,7 +80,7 @@ class Message:
         content_encoding = self.request["encoding"]
 
         req = {
-            "content_bytes": self._json_encode(content, content_encoding),
+            "content_bytes": self._encode(content),
             "content_encoding": content_encoding,
         }
         message = self._create_message(**req)
@@ -100,14 +96,14 @@ class Message:
     def read(self, state):
         self._read()
 
-        if self._jsonheader_len is None:
-            self.process_protoheader()
+        if self._header_len is None:
+            self.process_protocalheader()
 
-        if self._jsonheader_len is not None:
-            if self.jsonheader is None:
-                self.process_jsonheader()
+        if self._header_len is not None:
+            if self.header is None:
+                self.process_header()
 
-        if self.jsonheader:
+        if self.header:
             if self.response is None:
                 self.process_response(state)
 
@@ -137,21 +133,20 @@ class Message:
         except OSError as e:
             print(f"Error: socket.close() exception for {self.addr}: {e!r}")
         finally:
-            # Delete reference to socket object for garbage collection
             self.sock = None
 
-    def process_protoheader(self):
+    def process_protocalheader(self):
         hdrlen = 2
         if len(self._recv_buffer) >= hdrlen:
-            self._jsonheader_len = struct.unpack(
+            self._header_len = struct.unpack(
                 ">H", self._recv_buffer[:hdrlen]
             )[0]
             self._recv_buffer = self._recv_buffer[hdrlen:]
 
-    def process_jsonheader(self):
-        hdrlen = self._jsonheader_len
+    def process_header(self):
+        hdrlen = self._header_len
         if len(self._recv_buffer) >= hdrlen:
-            self.jsonheader = self._json_decode(
+            self.header = self._decode(
                 self._recv_buffer[:hdrlen], "utf-8"
             )
             self._recv_buffer = self._recv_buffer[hdrlen:]
@@ -160,18 +155,18 @@ class Message:
                     "content-length",
                     "content-encoding",
             ):
-                if reqhdr not in self.jsonheader:
+                if reqhdr not in self.header:
                     raise ValueError(f"Missing required header '{reqhdr}'.")
 
     def process_response(self, state):
-        content_len = self.jsonheader["content-length"]
+        content_len = self.header["content-length"]
         if not len(self._recv_buffer) >= content_len:
             return
         data = self._recv_buffer[:content_len]
         self._recv_buffer = self._recv_buffer[content_len:]
 
-        encoding = self.jsonheader["content-encoding"]
-        self.response = self._json_decode(data, encoding)  # 得到传输的内容
+        encoding = self.header["content-encoding"]
+        self.response = self._decode(data, encoding)  # 得到传输的内容
         if self.response.get('action') == 'register':
             state.numLocalTrain = self.response.get("numLocalTrain")
             state.batchSize = self.response.get("batchSize")

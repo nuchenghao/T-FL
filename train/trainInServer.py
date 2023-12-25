@@ -47,6 +47,7 @@ class Trainer:
         return float(reduce_sum(astype(cmp, y.dtype)))
 
     def evaluate_accuracy(self):
+        self.net.net.to(self.net.device)
         if isinstance(self.net, nn.Module):
             self.net.net.eval()  # 设置为评估模式
 

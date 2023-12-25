@@ -35,9 +35,10 @@ numGlobalTrain = args.numGlobalTrain
 host, port = args.host, args.port
 numCliets = args.numClient
 splitDataSet = args.splitDataSet
+record = args.record
 
 device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')  # server上的训练设备
-globalNet = Net.trainNet(LeNet.lenet(), device)  # 全局网络
+globalNet = Net.trainNet(LeNet.lenet(), device, record)  # 全局网络
 
 trainer = trainInServer.Trainer(batchSize, globalNet, 'test')
 state = stateInServer.messageInServer(globalNet, numGlobalTrain, numCliets, numLocalTrain, batchSize, learningRate,

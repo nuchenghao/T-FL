@@ -16,12 +16,13 @@ sel = selectors.DefaultSelector()
 args = options.args_client()  # 解析客户端参数
 
 host, port = args.server_ip, args.server_port
+record = args.record
 name = args.name
 numLocalTrain = 0
 batchSzie = 0
 learningRate = 0
 device = torch.device('cuda:{}'.format(0) if torch.cuda.is_available() else 'cpu')
-net = Net.trainNet(LeNet.lenet(), device)
+net = Net.trainNet(LeNet.lenet(), device, record)
 trainer = trainInClient.trainInWorker(net)
 state = stateInClient.messageInClient(net)
 

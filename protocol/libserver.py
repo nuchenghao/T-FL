@@ -1,7 +1,7 @@
 import copy
 import sys
 import selectors
-import json
+import pickle
 import io
 import struct
 
@@ -13,8 +13,8 @@ class Message:
         self.addr = addr
         self._recv_buffer = b""
         self._send_buffer = b""
-        self._jsonheader_len = None
-        self.jsonheader = None
+        self._header_len = None
+        self.header = None
         self.request = None
         self.response_created = False
         self.accuracy = 0.0
@@ -63,15 +63,15 @@ class Message:
                 if sent and not self._send_buffer:
                     self.close()
 
-    def _json_encode(self, obj, encoding):
-        return json.dumps(obj, ensure_ascii=False).encode(encoding)
+    def _encode(self, obj):
+        return pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def _json_decode(self, json_bytes, encoding):
-        tiow = io.TextIOWrapper(
-            io.BytesIO(json_bytes), encoding=encoding, newline=""
-        )
-        obj = json.load(tiow)
-        tiow.close()
+    def _decode(self, pickle_bytes, encoding):
+        # tiow = io.TextIOWrapper(
+        #     io.BytesIO(json_bytes), encoding=encoding, newline=""
+        # )
+        obj = pickle.loads(pickle_bytes, encoding=encoding)
+        # tiow.close()
         return obj
 
     def process_events(self, mask, state):
@@ -84,14 +84,14 @@ class Message:
     def read(self, msg):
         self._read()
 
-        if self._jsonheader_len is None:
+        if self._header_len is None:
             self.process_protoheader()
 
-        if self._jsonheader_len is not None:
-            if self.jsonheader is None:
-                self.process_jsonheader()
+        if self._header_len is not None:
+            if self.header is None:
+                self.process_header()
 
-        if self.jsonheader:
+        if self.header:
             if self.request is None:
                 self.process_request(msg)
 
@@ -105,15 +105,15 @@ class Message:
     def process_protoheader(self):
         hdrlen = 2
         if len(self._recv_buffer) >= hdrlen:
-            self._jsonheader_len = struct.unpack(
+            self._header_len = struct.unpack(
                 ">H", self._recv_buffer[:hdrlen]
             )[0]
             self._recv_buffer = self._recv_buffer[hdrlen:]
 
-    def process_jsonheader(self):
-        hdrlen = self._jsonheader_len
+    def process_header(self):
+        hdrlen = self._header_len
         if len(self._recv_buffer) >= hdrlen:
-            self.jsonheader = self._json_decode(
+            self.header = self._decode(
                 self._recv_buffer[:hdrlen], "utf-8"
             )
             self._recv_buffer = self._recv_buffer[hdrlen:]
@@ -122,18 +122,18 @@ class Message:
                     "content-length",
                     "content-encoding",
             ):
-                if reqhdr not in self.jsonheader:
+                if reqhdr not in self.header:
                     raise ValueError(f"Missing required header '{reqhdr}'.")
 
     def process_request(self, state):
-        content_len = self.jsonheader["content-length"]
+        content_len = self.header["content-length"]
         if not len(self._recv_buffer) >= content_len:
             return
         data = self._recv_buffer[:content_len]
         self._recv_buffer = self._recv_buffer[content_len:]
 
-        encoding = self.jsonheader["content-encoding"]
-        self.request = self._json_decode(data, encoding)
+        encoding = self.header["content-encoding"]
+        self.request = self._decode(data, encoding)
 
         if self.request.get('action') == 'register':  # 注册的处理
             print(f"Received {self.request.get('name')} register request from {self.addr}")
@@ -152,17 +152,17 @@ class Message:
     def _create_message(
             self, *, content_bytes, content_encoding
     ):
-        jsonheader = {
+        header = {
             "byteorder": sys.byteorder,
             "content-encoding": content_encoding,
             "content-length": len(content_bytes),
         }
-        jsonheader_bytes = self._json_encode(jsonheader, "utf-8")
-        message_hdr = struct.pack(">H", len(jsonheader_bytes))
-        message = message_hdr + jsonheader_bytes + content_bytes
+        header_bytes = self._encode(header)
+        message_hdr = struct.pack(">H", len(header_bytes))
+        message = message_hdr + header_bytes + content_bytes
         return message
 
-    def _create_response_json_content(self, state):
+    def _create_response_content(self, state):
         if self.request.get('action') == "register":
             content = {
                 # register阶段返回的内容
@@ -175,7 +175,7 @@ class Message:
             }
             content_encoding = "utf-8"
             response = {
-                "content_bytes": self._json_encode(content, content_encoding),
+                "content_bytes": self._encode(content),
                 "content_encoding": content_encoding,
             }
 
@@ -186,7 +186,7 @@ class Message:
             }
             content_encoding = "utf-8"
             response = {
-                "content_bytes": self._json_encode(content, content_encoding),
+                "content_bytes": self._encode(content),
                 "content_encoding": content_encoding,
             }
         elif self.request.get('action') == "upload":
@@ -198,14 +198,14 @@ class Message:
             }
             content_encoding = "utf-8"
             response = {
-                "content_bytes": self._json_encode(content, content_encoding),
+                "content_bytes": self._encode(content),
                 "content_encoding": content_encoding,
             }
 
         return response
 
     def create_response(self, state):
-        response = self._create_response_json_content(state)
+        response = self._create_response_content(state)
         message = self._create_message(**response)
         self.response_created = True
         self._send_buffer += message
