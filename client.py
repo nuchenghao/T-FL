@@ -1,81 +1,57 @@
+import json
 import sys
 import socket
 import selectors
 import traceback
+import pickle
+from lib import libclient
 
-import torch
+# 输出设置----------------------------------------------------------
+from rich.console import Console
+from rich.padding import Padding
 
-from net import LeNet, Net
-from train import trainInClient
-from protocol import libclient
-from tools import options
-from tools import stateInClient
+console = Console()  # 终端输出对象
 
+# 解析相关参数---------------------------------------------------
+with open('./config/client.json', 'r', encoding='utf-8') as file:
+    config = json.load(file)
+
+host = config['server_ip']
+port = config['server_port']
+name = config['name']
+
+stateInClient = libclient.stateInClient()
+# 通信相关-------------------------------------------------------
 sel = selectors.DefaultSelector()
-
-args = options.args_client()  # 解析客户端参数
-
-host, port = args.server_ip, args.server_port
-record = args.record
-name = args.name
-numLocalTrain = 0
-batchSzie = 0
-learningRate = 0
-
-
-def get_available_gpu():
-    # 检查是否有可用的 GPU
-    if torch.cuda.is_available():
-        # 获取可用的 GPU 数量
-        gpu_count = torch.cuda.device_count()
-        # 遍历所有可用的 GPU，选择第一个未被使用的 GPU
-        for i in range(gpu_count):
-            if torch.cuda.get_device_properties(i).is_initialized():
-                continue  # 跳过已经被使用的 GPU
-            else:
-                selected_gpu = torch.device(f"cuda:{i}")
-                return selected_gpu
-        return torch.device(f"cuda:{gpu_count - 1}")  # 如果所有 GPU 都被使用，则选择最大序号的 GPU
-    else:
-        return torch.device("cpu")  # 如果没有可用的 GPU，则使用 CPU 进行训练
-
-
-device = get_available_gpu()
-
-net = Net.trainNet(LeNet.lenet(), device, record)
-trainer = trainInClient.trainInWorker(net)
-state = stateInClient.messageInClient(net)
 
 
 def create_request(name, action, value):
-    return dict(
-        encoding="utf-8",
-        content=dict(name=name, action=action, value=value),
-    )
+    return dict(name=name, action=action, value=value)
 
 
-def connection(host, port, request):
+def connection(host, port, variableLenContent2):
     addr = (host, port)
-    print(f"Starting connection to {addr}")
+    console.log(Padding("start connecting to server...", style='bold magenta'))
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setblocking(False)
     sock.connect_ex(addr)
     events = selectors.EVENT_READ | selectors.EVENT_WRITE
-    message = libclient.Message(sel, sock, addr, request)
+    message = libclient.Message(sel, sock, addr, variableLenContent2)
     sel.register(sock, events, data=message)
 
 
-def registrt():
+def register():
     # 向服务器注册
     request = create_request(name, "register", "")
-    connection(host, port, request)
+    variableLenContent2 = pickle.dumps(request)  # 一定要是二进制文件
+    connection(host, port, variableLenContent2)
     try:
         while True:
             events = sel.select(timeout=-1)
             for key, mask in events:
                 message = key.data
                 try:
-                    message.process_events(mask, state)
+                    message.process_events(mask, stateInClient)
                 except Exception:
                     print(
                         f"Main: Error: Exception for {message.addr}:\n"
@@ -88,49 +64,27 @@ def registrt():
         print("Caught Exception in register, exiting")
 
 
-def requestData():
-    request = create_request(name, "requestData", "")
-    connection(host, port, request)
-    try:
-        while True:
-            events = sel.select(timeout=-1)
-            for key, mask in events:
-                message = key.data
-                try:
-                    message.process_events(mask, state)
-                except Exception:
-                    print(
-                        f"Main: Error: Exception for {message.addr}:\n"
-                        f"{traceback.format_exc()}"
-                    )
-                    message.close()
-            if not sel.get_map():
-                break
-    except Exception:
-        print("Caught Exception in requesting data, exiting")
-
-
 def client():
-    registrt()
-    if state.splitDataset:  # 请求数据
-        requestData()
-    trainer.initrain(state)
-    # print(trainer.numLocalTrain, trainer.batchSize, trainer.learningRate)
-    while True:
-        if state.finished:
-            break
-        trainer.train()  # 训练
+    console.rule("[bold red]In register stage")
+    register()  # 向服务器注册
+    console.log("register has been finished", style='bold red on white')
 
-        # 通信
-        request = create_request(name, 'upload', trainer.net.getNetParams())
-        connection(host, port, request)
+    console.rule("[bold red]In training stage")
+    while True:
+        if stateInClient.finished:
+            break
+        stateInClient.addIteration()
+        console.log(f"training iteration {stateInClient.trainingIterations}...", style='bold red on white')
+        request = create_request(name, 'upload', "")
+        variableLenContent2 = pickle.dumps(request)
+        connection(host, port, variableLenContent2)
         try:
             while True:
                 events = sel.select(timeout=-1)
                 for key, mask in events:
                     message = key.data
                     try:
-                        message.process_events(mask, state)
+                        message.process_events(mask, stateInClient)
                     except Exception:
                         print(
                             f"Main: Error: Exception for {message.addr}:\n"
@@ -141,6 +95,8 @@ def client():
                     break
         except Exception:
             print("Caught Exception in register, exiting")
+        console.log(f"training iteration {stateInClient.trainingIterations} has been finished",
+                    style='bold red on white')
 
 
 if __name__ == "__main__":

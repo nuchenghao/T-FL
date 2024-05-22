@@ -1,3 +1,5 @@
 /fashionmnist
-/data
+/serverData
 /recordModel
+/sourceData
+/clientData

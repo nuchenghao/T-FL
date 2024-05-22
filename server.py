@@ -1,151 +1,112 @@
-import copy
+import json
 import sys
 import socket
 import selectors
 import traceback
 
-import numpy as np
-import torch
-import torchvision
+from lib import libserver
 
-from net import LeNet, Net
-from protocol import libserver
-from train import trainInServer
-from tools import options
-from tools import stateInServer
+# -------------------------------------------------------------------
+with open("./config/server.json", 'r', encoding='utf-8') as file:
+    configOfServer = json.load(file)
+with open("./train/train.json", 'r', encoding='utf-8') as file:
+    configOfTrain = json.load(file)
+host = configOfServer['host']
+port = configOfServer['port']
+numOfClients = configOfServer['numOfClients']
+totalEpoches = configOfTrain['totalEpoches']
 
+stateInServer = libserver.stateInServer(numOfClients, totalEpoches)
+
+# 输出设置----------------------------------------------------------
+from rich.console import Console
+from rich.padding import Padding
+
+console = Console()  # 终端输出对象
+# 通信部分-------------------------------------------------------------
 sel = selectors.DefaultSelector()
 
 
-def accept_wrapper(sock, state):
+def accept_wrapper(sock):
     # 为每个新连接创建socket
     conn, addr = sock.accept()  # Should be ready to read
-    # print(f"Accepted connection from {addr}")
     conn.setblocking(False)
-    message = libserver.Message(sel, conn, addr, state.net)
+    message = libserver.Message(sel, conn, addr)
     sel.register(conn, selectors.EVENT_READ, data=message)
+    # console.log(f"Accepted connection from {addr}", style="bold green")
 
 
-args = options.args_server()
-# 设定训练参数
-numLocalTrain = args.numLocalTrain
-batchSize = args.batchSize
-learningRate = args.learningRate
-numGlobalTrain = args.numGlobalTrain
-host, port = args.host, args.port
-numCliets = args.numClient
-splitDataSet = args.splitDataSet
-record = args.record
-
-
-def get_available_gpu():
-    # 检查是否有可用的 GPU
-    if torch.cuda.is_available():
-        # 获取可用的 GPU 数量
-        gpu_count = torch.cuda.device_count()
-        # 遍历所有可用的 GPU，选择第一个未被使用的 GPU
-        for i in range(gpu_count):
-            if torch.cuda.get_device_properties(i).is_initialized():
-                continue  # 跳过已经被使用的 GPU
-            else:
-                selected_gpu = torch.device(f"cuda:{i}")
-                return selected_gpu
-        return torch.device(f"cuda:{gpu_count - 1}")  # 如果所有 GPU 都被使用，则选择最大序号的 GPU
-    else:
-        return torch.device("cpu")  # 如果没有可用的 GPU，则使用 CPU 进行训练
-
-
-device = get_available_gpu()  # server上的训练设备
-
-globalNet = Net.trainNet(LeNet.lenet(), device, record)  # 全局网络
-
-trainer = trainInServer.Trainer(batchSize, globalNet, 'test')
-state = stateInServer.messageInServer(globalNet, numGlobalTrain, numCliets, numLocalTrain, batchSize, learningRate,
-                                      splitDataSet)
-
-# 创建socket监听设备
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 lsock.bind((host, port))
 lsock.listen()
-print(f"Listening on {(host, port)}")
+console.log(f"Listening on {(host, port)}", style="bold white on blue")
 lsock.setblocking(False)
 sel.register(lsock, selectors.EVENT_READ, data=None)
+console.rule("[bold red]In register stage")
 
-
-def splitDataSet(clientlist):
-    train_data = torchvision.datasets.FashionMNIST(root='./fashionmnist', train=True, download=True)
-    numClients = len(clientlist)  # client数量
-    numSamples = len(train_data)
-    part_size = numSamples // numClients  # 每个client分到多少数据
-    indices = list(range(numSamples))
-    np.random.shuffle(indices)
-    indicesClient = []
-    for i in range(numClients):
-        indicesClient.append(indices[i * part_size:(i + 1) * part_size])
-    for i in range(numClients):
-        clientlist[i].data = [train_data[j] for j in indicesClient[i]]
-
-
+registered = False  # 处理输出用
+aggregated = True
 try:
     while True:
         events = sel.select(timeout=None)
         for key, mask in events:
-            if key.data is None:  # 连接
-                accept_wrapper(key.fileobj, state)
+            if key.data is None:  # 服务端的listening socket；意味着有一个新的连接到来
+                accept_wrapper(key.fileobj)
             else:
+                # or a client socket that’s already been accepted
                 message = key.data
                 try:
-                    message.process_events(mask, state)
+                    message.process_events(mask, stateInServer)
                 except Exception:
                     print(
                         f"Main: Error: Exception for {message.addr}:\n"
                         f"{traceback.format_exc()}"
                     )
                     message.close()
-        if state.ready():  # 所有client就绪
-            if state.register and state.splitDataset:  # 注册过且需要划分数据
-                clientlist = []  # 用户列表，元素是Message
-                socket_map = sel.get_map()
-                for fd, key in socket_map.items():
-                    if key.data != None:
-                        clientlist.append(key.data)
-                splitDataSet(clientlist)
-
-                for fd, key in socket_map.items():
-                    if key.data != None:
-                        key.data.net = copy.deepcopy(state.net)
-                        sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
-
-                state.splitDataset = False
-
-            elif state.register:  # 注册过了，训练
-                modellist = []
+        if stateInServer.ready():
+            if stateInServer.allRegistered:
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
                 for fd, key in socket_map.items():
                     if key.data != None:
-                        modellist.append(key.data.net.net)  # 获取网络
-                trainer.aggregatrion(modellist)  # 聚合
-                for fd, key in socket_map.items():
-                    if key.data != None:
-                        key.data.net = copy.deepcopy(state.net)
                         sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
-                state.addEpoch()
 
+                # 聚合，然后分发模型
+                stateInServer.addEpoch()
+                console.log(
+                    Padding(f"Training iteration {stateInServer.currentEpoch} has been finished",
+                            style="bold red on white"))
+                if stateInServer.finish():
+                    console.log(f"Training has been finished.Send finished flag to clients", style="bold red on white")
+                aggregated = True
             else:  # 注册
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
                 for fd, key in socket_map.items():
                     data = key.data
                     if data != None:
                         sel.modify(key.fileobj, selectors.EVENT_WRITE, data)  # 将挂起的事件激活
-                state.register = True
+                stateInServer.allRegistered = True
+                console.log("Register has been finished", style="bold red on white")
+                console.rule("[bold red]In training stage")
 
-            state.clearClient()
+                # 下发参数
 
-        if state.finish() and len(sel.get_map()) == 1:  # 训练完成且所有通信socket都已经完成
+            stateInServer.clearClient()
+
+        if len(sel.get_map()) - 1 == numOfClients and stateInServer.allRegistered and aggregated and not stateInServer.finish():
+            console.log(Padding(f"Training iteration {stateInServer.currentEpoch + 1}...", style="bold red on white"))
+            aggregated = False
+
+        if stateInServer.finish() and len(sel.get_map()) == 1:  # 训练完成且所有通信socket都已经完成
+            console.log("Finish training", style="bold red on white")
             break
+
+
+
 
 except KeyboardInterrupt:
     print("Caught keyboard interrupt, exiting")
 finally:
     sel.close()
+
+# 每个链接传输一次，然后就断开
