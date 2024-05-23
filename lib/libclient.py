@@ -103,10 +103,13 @@ class Message:
         console.log(Padding(f"Received data from server", style="bold green", pad=(0, 0, 0, 4)))
         data = self._recv_buffer[:content_len]
         self._recv_buffer = self._recv_buffer[content_len:]
-        # 处理信息，to be done
+
         self.response = self._decode(data)  # 反序列化
-        stateInClient.finished = self.response.get('finished')
-        console.print(Padding(self.response.get('content'), style="white", pad=(0, 0, 0, 20)))
+
+        stateInClient.finished = self.response.get('finished')  # 是否结束训练
+        console.print(Padding("Get Network", style="white", pad=(0, 0, 0, 20)))
+        stateInClient.Net = self.response.get("content")
+        print(stateInClient.Net.getNetParams())  # 网络参数的输出只能用print
         self.close()
 
     def read(self, stateInClient):
@@ -195,6 +198,7 @@ class stateInClient:
     def __init__(self):
         self.finished = False
         self.trainingIterations = 0
+        self.Net = None
 
     def addIteration(self):
         self.trainingIterations += 1

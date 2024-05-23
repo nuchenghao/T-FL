@@ -143,7 +143,7 @@ class Message:
     # 写数据---------------------------------------------------------------------
     def _write(self):
         if self._send_buffer:
-            console.log(Padding(f"Sending to {self.name}", style="bold cyan", pad=(0, 0, 0, 4)))
+            # console.log(Padding(f"Sending to {self.name}", style="bold cyan", pad=(0, 0, 0, 4)))
             try:
                 # Should be ready to write
                 sent = self.sock.send(self._send_buffer)
@@ -169,13 +169,15 @@ class Message:
         return message
 
     def _create_response(self, stateInServer):
-        response = dict(finished=stateInServer.finish(), content="accepted")
+        # 直接传输网络
+        print(stateInServer.Net.getNetParams())  # 网络参数的输出只能用print
+        response = dict(finished=stateInServer.finish(), content=stateInServer.Net)
         response = pickle.dumps(response)
         return response
 
     def create_response(self, stateInServer):
         response = self._create_response(stateInServer)
-        message = self._create_message(response)
+        message = self._create_message(response)  # 加两个头文件
         self.response_created = True
         self._send_buffer += message
 
@@ -215,13 +217,15 @@ class Message:
 
 
 class stateInServer:
-    def __init__(self, numOfClients, totalEpoches):
+    def __init__(self, numOfClients, totalEpoches, Net):
         self.allRegistered = False  # 记录是否已经注册过，用于区分当前是连接还是训练
         self.currentClients = 0
         self.numOfClients = numOfClients  # 所有参与训练的客户数
 
         self.currentEpoch = 0  # 当前的轮次
         self.totalEpoches = totalEpoches  # 总共需要训练的轮次
+
+        self.Net = Net
 
     def addEpoch(self):
         self.currentEpoch += 1

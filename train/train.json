@@ -1,4 +1,6 @@
 {
-  "totalEpoches": 50,
-  "lr": 0.01
+  "totalEpochesInServer": 50,
+  "lr": 0.01,
+  "batchSize": 256,
+  "totalEpochesInClient": 5
 }

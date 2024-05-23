@@ -1,4 +1,5 @@
 import json
+import pickle
 import sys
 import socket
 import selectors
@@ -6,17 +7,25 @@ import traceback
 
 from lib import libserver
 
-# -------------------------------------------------------------------
+from train import Net
+from train import MLP
+
+# 设置server的state -------------------------------------------------------------------
 with open("./config/server.json", 'r', encoding='utf-8') as file:
     configOfServer = json.load(file)
 with open("./train/train.json", 'r', encoding='utf-8') as file:
-    configOfTrain = json.load(file)
+    trainConfigJSON = json.load(file)
 host = configOfServer['host']
 port = configOfServer['port']
 numOfClients = configOfServer['numOfClients']
-totalEpoches = configOfTrain['totalEpoches']
+totalEpochesInServer = trainConfigJSON['totalEpochesInServer']
 
-stateInServer = libserver.stateInServer(numOfClients, totalEpoches)
+with open("./train/train.json", 'r', encoding="utf-8") as file:
+    trainConfig2 = pickle.dumps(json.load(file))
+
+Net = Net.Net(MLP.net, trainConfigJSON, MLP.init_weights)
+
+stateInServer = libserver.stateInServer(numOfClients, totalEpochesInServer, Net)
 
 # 输出设置----------------------------------------------------------
 from rich.console import Console
@@ -77,7 +86,7 @@ try:
                     Padding(f"Training iteration {stateInServer.currentEpoch} has been finished",
                             style="bold red on white"))
                 if stateInServer.finish():
-                    console.log(f"Training has been finished.Send finished flag to clients", style="bold red on white")
+                    console.log(f"Training has been finished. Send finished flag to clients", style="bold red on white")
                 aggregated = True
             else:  # 注册
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
