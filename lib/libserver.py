@@ -170,8 +170,11 @@ class Message:
 
     def _create_response(self, stateInServer):
         # 直接传输网络
-        print(stateInServer.Net.getNetParams())  # 网络参数的输出只能用print
-        response = dict(finished=stateInServer.finish(), content=stateInServer.Net)
+        # print(stateInServer.Net.getNetParams())  # 网络参数的输出只能用print
+        if stateInServer.finish():  # 训练结束
+            response = dict(finished=stateInServer.finish(), content="")
+        else:
+            response = dict(finished=stateInServer.finish(), content=stateInServer.Net)
         response = pickle.dumps(response)
         return response
 
@@ -217,7 +220,7 @@ class Message:
 
 
 class stateInServer:
-    def __init__(self, numOfClients, totalEpoches, Net):
+    def __init__(self, numOfClients, totalEpoches, Net, dataIter, timer):
         self.allRegistered = False  # 记录是否已经注册过，用于区分当前是连接还是训练
         self.currentClients = 0
         self.numOfClients = numOfClients  # 所有参与训练的客户数
@@ -225,7 +228,12 @@ class stateInServer:
         self.currentEpoch = 0  # 当前的轮次
         self.totalEpoches = totalEpoches  # 总共需要训练的轮次
 
-        self.Net = Net
+        # 训练相关
+        self.Net = Net  # 网络
+        self.dataIter = dataIter
+
+        self.timer = timer  # 计时器
+        self.resultRecord = []  # 统计一下结果，后面画图用
 
     def addEpoch(self):
         self.currentEpoch += 1

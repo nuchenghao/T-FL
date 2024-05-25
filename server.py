@@ -6,9 +6,10 @@ import selectors
 import traceback
 
 from lib import libserver
-
+from tool import Timer
 from train import Net
 from train import MLP
+from tool import data, drawResult
 
 # 设置server的state -------------------------------------------------------------------
 with open("./config/server.json", 'r', encoding='utf-8') as file:
@@ -18,14 +19,15 @@ with open("./train/train.json", 'r', encoding='utf-8') as file:
 host = configOfServer['host']
 port = configOfServer['port']
 numOfClients = configOfServer['numOfClients']
-totalEpochesInServer = trainConfigJSON['totalEpochesInServer']
 
-with open("./train/train.json", 'r', encoding="utf-8") as file:
-    trainConfig2 = pickle.dumps(json.load(file))
-
-Net = Net.Net(MLP.net, trainConfigJSON, MLP.init_weights)
-
-stateInServer = libserver.stateInServer(numOfClients, totalEpochesInServer, Net)
+totalTrainIterations = trainConfigJSON['totalTrainIterations']
+loss = trainConfigJSON['loss']
+optimizer = trainConfigJSON['optimizer']
+Net = Net.Net(MLP.net, trainConfigJSON, MLP.init_weights, loss, optimizer)
+Net.initNet()
+dataIter = data.load_data_fashion_mnist(trainConfigJSON["batchSize"], 'test')
+timer = Timer.Timer()
+stateInServer = libserver.stateInServer(numOfClients, totalTrainIterations, Net, dataIter, timer)
 
 # 输出设置----------------------------------------------------------
 from rich.console import Console
@@ -73,14 +75,24 @@ try:
                         f"{traceback.format_exc()}"
                     )
                     message.close()
-        if stateInServer.ready():
+
+        if stateInServer.ready():  # 所有客户端准备就绪
+
             if stateInServer.allRegistered:
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
+                clientModelList = []
+                for fd, key in socket_map.items():
+                    if key.data != None:
+                        net = key.data.request.get("content").net
+                        clientModelList.append(net)  # 获得每个client的模型
+
+                stateInServer.Net.updateNetParams(clientModelList)  # 聚合
+                stateInServer.Net.evaluate_accuracy(stateInServer.dataIter, stateInServer)  # 验证
+
                 for fd, key in socket_map.items():
                     if key.data != None:
                         sel.modify(key.fileobj, selectors.EVENT_WRITE, key.data)
 
-                # 聚合，然后分发模型
                 stateInServer.addEpoch()
                 console.log(
                     Padding(f"Training iteration {stateInServer.currentEpoch} has been finished",
@@ -88,6 +100,7 @@ try:
                 if stateInServer.finish():
                     console.log(f"Training has been finished. Send finished flag to clients", style="bold red on white")
                 aggregated = True
+
             else:  # 注册
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典
                 for fd, key in socket_map.items():
@@ -97,8 +110,7 @@ try:
                 stateInServer.allRegistered = True
                 console.log("Register has been finished", style="bold red on white")
                 console.rule("[bold red]In training stage")
-
-                # 下发参数
+                stateInServer.timer.start()  # 从这里开始计时，开始下发模型
 
             stateInServer.clearClient()
 
@@ -108,9 +120,8 @@ try:
 
         if stateInServer.finish() and len(sel.get_map()) == 1:  # 训练完成且所有通信socket都已经完成
             console.log("Finish training", style="bold red on white")
+            drawResult.drawResults(stateInServer, "./log/result.png", "noniid_mlp")
             break
-
-
 
 
 except KeyboardInterrupt:

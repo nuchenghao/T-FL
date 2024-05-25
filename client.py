@@ -5,10 +5,11 @@ import selectors
 import traceback
 import pickle
 from lib import libclient
-
+import argparse
 # 输出设置----------------------------------------------------------
 from rich.console import Console
 from rich.padding import Padding
+from tool import data
 
 console = Console()  # 终端输出对象
 
@@ -18,7 +19,12 @@ with open('./config/client.json', 'r', encoding='utf-8') as file:
 
 host = config['server_ip']
 port = config['server_port']
-name = config['name']
+
+# name由命令行提供
+parser = argparse.ArgumentParser()
+parser.add_argument('--name', type=str, required=True, help="name of client")
+args = parser.parse_args()
+name = args.name  # client名
 
 stateInClient = libclient.stateInClient()
 # 通信相关-------------------------------------------------------
@@ -26,7 +32,7 @@ sel = selectors.DefaultSelector()
 
 
 def create_request(name, action, value):
-    return dict(name=name, action=action, value=value)
+    return dict(name=name, action=action, content=value)
 
 
 def connection(host, port, variableLenContent2):
@@ -69,13 +75,17 @@ def client():
     register()  # 向服务器注册
     console.log("register has been finished", style='bold red on white')
 
+    dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['batchSize'], 'train',
+                                            "./data/iid/{}".format(name))
+    stateInClient.dataIter = dataIter
     console.rule("[bold red]In training stage")
     while True:
         if stateInClient.finished:
             break
         stateInClient.addIteration()
         console.log(f"training iteration {stateInClient.trainingIterations}...", style='bold red on white')
-        request = create_request(name, 'upload', "")
+        stateInClient.Net.train(stateInClient.dataIter)
+        request = create_request(name, 'upload', stateInClient.Net)
         variableLenContent2 = pickle.dumps(request)
         connection(host, port, variableLenContent2)
         try:
@@ -95,8 +105,6 @@ def client():
                     break
         except Exception:
             print("Caught Exception in register, exiting")
-        console.log(f"training iteration {stateInClient.trainingIterations} has been finished",
-                    style='bold red on white')
 
 
 if __name__ == "__main__":

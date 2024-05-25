@@ -107,9 +107,9 @@ class Message:
         self.response = self._decode(data)  # 反序列化
 
         stateInClient.finished = self.response.get('finished')  # 是否结束训练
-        console.print(Padding("Get Network", style="white", pad=(0, 0, 0, 20)))
+        # console.print(Padding("Get Network", style="white", pad=(0, 0, 0, 20)))
         stateInClient.Net = self.response.get("content")
-        print(stateInClient.Net.getNetParams())  # 网络参数的输出只能用print
+        # print(stateInClient.Net.getNetParams())  # 网络参数的输出只能用print
         self.close()
 
     def read(self, stateInClient):
@@ -129,7 +129,6 @@ class Message:
     # 写数据------------------------------------------------------------------
     def _write(self):
         if self._send_buffer:
-            console.log(Padding(f"Sending data to server", style="bold green", pad=(0, 0, 0, 4)))
             try:
                 # Should be ready to write
                 sent = self.sock.send(self._send_buffer)
@@ -156,7 +155,7 @@ class Message:
         self._send_buffer += message
         self._request_queued = True
 
-    def write(self):
+    def write(self, stateInClient):
         if not self._request_queued:
             self.queue_request()
 
@@ -166,6 +165,10 @@ class Message:
             if not self._send_buffer:
                 # Set selector to listen for read events, we're done writing.
                 self._set_selector_events_mask("r")
+                if stateInClient.trainingIterations > 0:
+                    console.log(
+                        f"Model has been send to server. Local training iteration {stateInClient.trainingIterations} has been finished",
+                        style='bold red on white')
 
     # 关闭socket-------------------------------------------------------
     def close(self):
@@ -191,7 +194,7 @@ class Message:
         if mask & selectors.EVENT_READ:
             self.read(stateInClient)
         if mask & selectors.EVENT_WRITE:
-            self.write()
+            self.write(stateInClient)
 
 
 class stateInClient:
@@ -199,6 +202,8 @@ class stateInClient:
         self.finished = False
         self.trainingIterations = 0
         self.Net = None
+
+        self.dataIter = None
 
     def addIteration(self):
         self.trainingIterations += 1
