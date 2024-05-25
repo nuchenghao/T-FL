@@ -17,5 +17,6 @@ sleep 2
 # 每个client指定一个核心
 for i in {0..4}
 do
+
    tmux send-keys -t $i "conda activate nch && taskset -c $i python3 client.py --name client$i" C-m
 done
