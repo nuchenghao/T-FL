@@ -8,7 +8,7 @@ import traceback
 from lib import libserver
 from tool import Timer
 from train import Net
-from train import MLP
+from train import Resnet18
 from tool import data, drawResult
 
 # 设置server的state -------------------------------------------------------------------
@@ -23,9 +23,9 @@ numOfClients = configOfServer['numOfClients']
 totalTrainIterations = trainConfigJSON['totalTrainIterations']
 loss = trainConfigJSON['loss']
 optimizer = trainConfigJSON['optimizer']
-Net = Net.Net(MLP.net, trainConfigJSON, MLP.init_weights, loss, optimizer)
+Net = Net.Net(Resnet18.net, trainConfigJSON, Resnet18.init_weights, loss, optimizer)
 Net.initNet()
-dataIter = data.load_data_fashion_mnist(trainConfigJSON["batchSize"], 'test')
+dataIter = data.load_data_fashion_mnist(trainConfigJSON["batchSize"], 'test', name='server', resize=96)
 timer = Timer.Timer()
 stateInServer = libserver.stateInServer(numOfClients, totalTrainIterations, Net, dataIter, timer)
 
@@ -84,6 +84,7 @@ try:
                 for fd, key in socket_map.items():
                     if key.data != None:
                         net = key.data.request.get("content").net
+                        net.eval()
                         clientModelList.append(net)  # 获得每个client的模型
 
                 stateInServer.Net.updateNetParams(clientModelList)  # 聚合

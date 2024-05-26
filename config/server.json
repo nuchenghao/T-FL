@@ -1,5 +1,5 @@
 {
-  "host": "192.168.31.203",
+  "host": "192.168.31.127",
   "port": 65432,
-  "numOfClients": 2
+  "numOfClients": 1
 }

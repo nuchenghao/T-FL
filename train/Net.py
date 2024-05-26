@@ -6,6 +6,7 @@ import torchvision
 from torchvision import transforms
 from rich.console import Console
 from rich.padding import Padding
+from collections import OrderedDict
 
 console = Console()  # 终端输出对象
 
@@ -23,12 +24,25 @@ class Net():
         self.net.apply(self.init_weights)
 
     def getNetParams(self):
-        return self.net.cpu().state_dict()  # 将模型移到CPU，然后导出模型参数
+        return self.net.state_dict()  # 将模型移到CPU，然后导出模型参数
 
     def updateNetParams(self, clientModelList):
-        length = len(clientModelList)
-        for name, param in self.net.named_parameters():
-            param.data = sum([model.state_dict()[name] for model in clientModelList]) / length
+        self.net.eval()  # 如果网络使用了如BatchNorm这样的层，那么在计算平均参数之前，应该将网络置于评估模式（.eval()），以避免BatchNorm层的运行时统计数据影响参数的值。
+        with torch.no_grad():
+            # 使用 OrderedDict 保持参数的顺序
+            avg_state_dict = OrderedDict()
+            for net in clientModelList:
+                state_dict = net.state_dict()
+                for key, param in state_dict.items():
+                    if key in avg_state_dict:
+                        avg_state_dict[key] += param
+                    else:
+                        avg_state_dict[key] = param.clone()
+            # 计算平均值
+            for key in avg_state_dict.keys():
+                avg_state_dict[key] = avg_state_dict[key] / len(clientModelList)
+            self.net.load_state_dict(avg_state_dict)
+        # print(self.net.state_dict())
 
     class Accumulator:
         """在n个变量上累加，内部类"""
@@ -60,7 +74,7 @@ class Net():
         cmp = self.astype(y_hat, y.dtype) == y
         return float(self.reduce_sum(self.astype(cmp, y.dtype)))
 
-    def train(self, train_iter, client=True):
+    def train(self, train_iter, name, iteration, client=True):
 
         if client:
             # client训练
@@ -69,7 +83,7 @@ class Net():
             # 服务器预训练
             numEpochs = self.trainConfigJSON["totalEpochesInServer"]
 
-        for epoch in tqdm(range(numEpochs)):
+        for epoch in range(numEpochs):
             if isinstance(self.net, torch.nn.Module):
                 self.net.train()
             metric = self.Accumulator(3)
@@ -81,8 +95,9 @@ class Net():
                 self.optimizer.step()
                 metric.add(float(l.sum()), self.accuracy(y_hat, y), y.numel())
             train_acc = metric[1] / metric[2]
-            console.log(Padding(f"the train accuracy in epoch {epoch + 1} is {train_acc * 100:.4f}%", style='bold red',
-                                pad=(0, 0, 0, 20)))
+            console.log(
+                Padding(f"{name}'s train accuracy in iteration {iteration} is {train_acc * 100:.4f}%", style='bold red',
+                        pad=(0, 0, 0, 20)))
 
     def evaluate_accuracy(self, data_iter, stateInServer):
         if isinstance(self.net, torch.nn.Module):

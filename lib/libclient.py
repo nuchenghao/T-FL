@@ -61,7 +61,7 @@ class Message:
     def _read(self):
         try:
             # Should be ready to read
-            data = self.sock.recv(1_048_576)
+            data = self.sock.recv(2_097_152)
         except BlockingIOError:
             # Resource temporarily unavailable (errno EWOULDBLOCK)
             pass
@@ -100,7 +100,7 @@ class Message:
         content_len = self.jsonheader["content-length"]
         if not len(self._recv_buffer) >= content_len:  # 还没收到完整数据
             return
-        console.log(Padding(f"Received data from server", style="bold green", pad=(0, 0, 0, 4)))
+        # console.log(Padding(f"Received data from server", style="bold green", pad=(0, 0, 0, 4)))
         data = self._recv_buffer[:content_len]
         self._recv_buffer = self._recv_buffer[content_len:]
 
@@ -165,14 +165,14 @@ class Message:
             if not self._send_buffer:
                 # Set selector to listen for read events, we're done writing.
                 self._set_selector_events_mask("r")
-                if stateInClient.trainingIterations > 0:
-                    console.log(
-                        f"Model has been send to server. Local training iteration {stateInClient.trainingIterations} has been finished",
-                        style='bold red on white')
+                # if stateInClient.trainingIterations > 0:
+                #     console.log(
+                #         f"Model has been send to server. Local training iteration {stateInClient.trainingIterations} has been finished",
+                #         style='bold red on white')
 
     # 关闭socket-------------------------------------------------------
     def close(self):
-        console.log(Padding(f"Closing connection to server", style="bold magenta"))
+        # console.log(Padding(f"Closing connection to server", style="bold magenta"))
         try:
             self.selector.unregister(self.sock)
         except Exception as e:
@@ -198,12 +198,14 @@ class Message:
 
 
 class stateInClient:
-    def __init__(self):
+    def __init__(self, name):
         self.finished = False
         self.trainingIterations = 0
         self.Net = None
 
         self.dataIter = None
+
+        self.name = name
 
     def addIteration(self):
         self.trainingIterations += 1

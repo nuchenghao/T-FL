@@ -68,7 +68,7 @@ class Message:
     def _read(self):
         try:
             # Should be ready to read
-            data = self.sock.recv(1_048_576)  # read 1MB once
+            data = self.sock.recv(2_097_152)  # read 2MB once
         except BlockingIOError:
             # Resource temporarily unavailable (errno EWOULDBLOCK)
             pass
@@ -233,7 +233,7 @@ class stateInServer:
         self.dataIter = dataIter
 
         self.timer = timer  # 计时器
-        self.resultRecord = []  # 统计一下结果，后面画图用
+        self.resultRecord = [(0, 0.0)]  # 统计一下结果，后面画图用;从(0,0)开始计
 
     def addEpoch(self):
         self.currentEpoch += 1

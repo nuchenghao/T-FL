@@ -3,7 +3,7 @@
   "lr": 0.01,
   "batchSize": 256,
   "totalEpochesInServer": 20,
-  "totalEpochesInClient": 5,
+  "totalEpochesInClient": 1,
   "loss": "CrossEntropyLoss",
   "optimizer": "SGD"
 }

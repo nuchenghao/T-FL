@@ -26,7 +26,7 @@ parser.add_argument('--name', type=str, required=True, help="name of client")
 args = parser.parse_args()
 name = args.name  # client名
 
-stateInClient = libclient.stateInClient()
+stateInClient = libclient.stateInClient(name)
 # 通信相关-------------------------------------------------------
 sel = selectors.DefaultSelector()
 
@@ -37,7 +37,7 @@ def create_request(name, action, value):
 
 def connection(host, port, variableLenContent2):
     addr = (host, port)
-    console.log(Padding("start connecting to server...", style='bold magenta'))
+    # console.log(Padding("start connecting to server...", style='bold magenta'))
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setblocking(False)
     sock.connect_ex(addr)
@@ -71,20 +71,22 @@ def register():
 
 
 def client():
-    console.rule("[bold red]In register stage")
+    # console.rule("[bold red]In register stage")
+    console.log(f"{stateInClient.name} start registering", style="bold blue")
     register()  # 向服务器注册
-    console.log("register has been finished", style='bold red on white')
+    console.log(f"{stateInClient.name} have registered", style='bold yellow')
 
     dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['batchSize'], 'train',
                                             "./data/iid/{}".format(name))
     stateInClient.dataIter = dataIter
-    console.rule("[bold red]In training stage")
+    # console.rule("[bold red]In training stage")
     while True:
         if stateInClient.finished:
             break
         stateInClient.addIteration()
-        console.log(f"training iteration {stateInClient.trainingIterations}...", style='bold red on white')
-        stateInClient.Net.train(stateInClient.dataIter)
+        # console.log(f"training iteration {stateInClient.trainingIterations}...", style='bold red on white')
+        stateInClient.Net.train(stateInClient.dataIter, stateInClient.name, stateInClient.trainingIterations)
+        stateInClient.Net.net.eval()
         request = create_request(name, 'upload', stateInClient.Net)
         variableLenContent2 = pickle.dumps(request)
         connection(host, port, variableLenContent2)
