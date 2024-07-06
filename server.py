@@ -13,16 +13,16 @@ from tool import data, drawResult
 
 # 设置server的state -------------------------------------------------------------------
 with open("./config/server.json", 'r', encoding='utf-8') as file:
-    configOfServer = json.load(file)
+    configOfServer = json.load(file)  # server的配置文件
 with open("./train/train.json", 'r', encoding='utf-8') as file:
-    trainConfigJSON = json.load(file)
+    trainConfigJSON = json.load(file)  # 训练的配置文件
 host = configOfServer['host']
 port = configOfServer['port']
 numOfClients = configOfServer['numOfClients']
 
 totalTrainIterations = trainConfigJSON['totalTrainIterations']
-loss = trainConfigJSON['loss']
-optimizer = trainConfigJSON['optimizer']
+loss = trainConfigJSON['loss']  # 训练的损失函数
+optimizer = trainConfigJSON['optimizer']  # 优化器
 Net = Net.Net(Resnet18.net, trainConfigJSON, Resnet18.init_weights, loss, optimizer)
 Net.initNet()
 dataIter = data.load_data_fashion_mnist(trainConfigJSON["batchSize"], 'test', name='server', resize=96)
@@ -101,6 +101,7 @@ try:
                 if stateInServer.finish():
                     console.log(f"Training has been finished. Send finished flag to clients", style="bold red on white")
                 aggregated = True
+
 
             else:  # 注册
                 socket_map = sel.get_map()  # 获取注册的socket和data的字典

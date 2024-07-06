@@ -83,14 +83,19 @@ class Net():
             # 服务器预训练
             numEpochs = self.trainConfigJSON["totalEpochesInServer"]
 
+        # 指定设备，client端拿cpu模拟，所以这里直接指定cpu
+        device = "cpu"
+        self.net.to(device)
+
         for epoch in range(numEpochs):
             if isinstance(self.net, torch.nn.Module):
                 self.net.train()
             metric = self.Accumulator(3)
             for X, y in train_iter:
+                self.optimizer.zero_grad()
+                X, y = X.to(device), y.to(device)
                 y_hat = self.net(X)
                 l = self.loss(y_hat, y)
-                self.optimizer.zero_grad()
                 l.mean().backward()
                 self.optimizer.step()
                 metric.add(float(l.sum()), self.accuracy(y_hat, y), y.numel())
@@ -98,14 +103,22 @@ class Net():
             console.log(
                 Padding(f"{name}'s train accuracy in iteration {iteration} is {train_acc * 100:.4f}%", style='bold red',
                         pad=(0, 0, 0, 20)))
+        self.net.to('cpu')  # 防止server上聚合时出错
 
     def evaluate_accuracy(self, data_iter, stateInServer):
         if isinstance(self.net, torch.nn.Module):
             self.net.eval()  # 将模型设置为评估模式
         metric = self.Accumulator(2)  # 正确预测数、预测总数
+
+        # 指定设备
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.net.to(device)
+
         with torch.no_grad():
             for X, y in data_iter:
+                X, y = X.to(device), y.to(device)
                 metric.add(self.accuracy(self.net(X), y), self.size(y))
         test_acc = metric[0] / metric[1]
         stateInServer.resultRecord.append((stateInServer.timer.stop(), test_acc))  # (分钟，精度)
         console.log(Padding(f"the test accuracy is {test_acc}", style='bold red', pad=(0, 0, 0, 4)))
+        self.net.to('cpu')  # 防止下发时出错

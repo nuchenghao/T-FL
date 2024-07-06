@@ -68,7 +68,7 @@ class Message:
     def _read(self):
         try:
             # Should be ready to read
-            data = self.sock.recv(2_097_152)  # read 2MB once
+            data = self.sock.recv(20_971_520)  # read 20MB once
         except BlockingIOError:
             # Resource temporarily unavailable (errno EWOULDBLOCK)
             pass
@@ -95,14 +95,6 @@ class Message:
                 self._recv_buffer[:hdrlen], "utf-8"
             )
             self._recv_buffer = self._recv_buffer[hdrlen:]
-            # for reqhdr in (
-            #         "byteorder",
-            #         "content-length",
-            #         "content-type",
-            #         "content-encoding",
-            # ):
-            #     if reqhdr not in self.jsonheader:
-            #         raise ValueError(f"Missing required header '{reqhdr}'.")
 
     def process_request(self, stateInServer):
         content_len = self.jsonheader["content-length"]
@@ -192,6 +184,7 @@ class Message:
         self._write()
 
     # 关闭连接---------------------------------------------------------
+
     def close(self):
         console.log(Padding(f"Closing connection to {self.name}", style="bold cyan", pad=(0, 0, 0, 4)))
         try:

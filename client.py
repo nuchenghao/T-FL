@@ -77,7 +77,7 @@ def client():
     console.log(f"{stateInClient.name} have registered", style='bold yellow')
 
     dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['batchSize'], 'train',
-                                            "./data/iid/{}".format(name))
+                                            "./data/noniid/{}".format(name))
     stateInClient.dataIter = dataIter
     # console.rule("[bold red]In training stage")
     while True:

@@ -6,14 +6,14 @@ import matplotlib.pyplot as plt
 
 # 假设你的有序对列表如下
 def savePairToCsv(pairs):
-    with open("result.csv", 'w', newline='') as file:
+    with open("fm_iid.csv", 'w', newline='') as file:
         writer = csv.writer(file)
         writer.writerows(pairs)
 
 
 def openCsvToPair():
     pairs = []
-    with open('result.csv', 'r') as file:
+    with open('./log/result.csv', 'r') as file:
         csv_reader = csv.reader(file)
         for row in csv_reader:
             a, b = row
@@ -22,6 +22,8 @@ def openCsvToPair():
 
 
 def drawResults(stateInServer, path, title):
+    # 先保存文件
+    savePairToCsv(stateInServer.resultRecord)
     # 解包列表中的有序对到两个不同的列表
     pairs = stateInServer.resultRecord
     a_values, b_values = zip(*pairs)
