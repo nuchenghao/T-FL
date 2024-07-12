@@ -5,10 +5,7 @@ class Timer:
     """记录多次运行时间"""
 
     def __init__(self):
-        pass
-        """Defined in :numref:`subsec_linear_model`"""
-        # self.times = []
-        # self.start()
+        self.tik=0
 
     def start(self):
         """启动计时器"""

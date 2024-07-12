@@ -1,7 +1,6 @@
 import json
 import sys
 import socket
-import selectors
 import traceback
 import pickle
 from lib import libclient
@@ -28,85 +27,62 @@ name = args.name  # client名
 
 stateInClient = libclient.stateInClient(name)
 # 通信相关-------------------------------------------------------
-sel = selectors.DefaultSelector()
+addr = (host, port)
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # 每个client创建一个连接server的socket
+sock.setblocking(False)
+sock.connect_ex(addr)
+message = libclient.Message(sock, None,name)
 
 
-def create_request(name, action, value):
+def create_content(name, action, value):
+    # 这个就是上传的格式
     return dict(name=name, action=action, content=value)
-
-
-def connection(host, port, variableLenContent2):
-    addr = (host, port)
-    # console.log(Padding("start connecting to server...", style='bold magenta'))
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setblocking(False)
-    sock.connect_ex(addr)
-    events = selectors.EVENT_READ | selectors.EVENT_WRITE
-    message = libclient.Message(sel, sock, addr, variableLenContent2)
-    sel.register(sock, events, data=message)
 
 
 def register():
     # 向服务器注册
-    request = create_request(name, "register", "")
-    variableLenContent2 = pickle.dumps(request)  # 一定要是二进制文件
-    connection(host, port, variableLenContent2)
-    try:
-        while True:
-            events = sel.select(timeout=-1)
-            for key, mask in events:
-                message = key.data
-                try:
-                    message.process_events(mask, stateInClient)
-                except Exception:
-                    print(
-                        f"Main: Error: Exception for {message.addr}:\n"
-                        f"{traceback.format_exc()}"
-                    )
-                    message.close()
-            if not sel.get_map():
-                break
-    except Exception:
-        print("Caught Exception in register, exiting")
+    content = create_content(name, "register", "")
+    message.content = content
+    writeThread = libclient.WriteThread(message)  # 发送注册信息
+    writeThread.start()
+    writeThread.join()  # 等待读结束
+    readThread = libclient.ReadThread(message)  # 等待serve返回信息
+    readThread.start()
+    readThread.join()
+    stateInClient.Net = message.content['content']
+    stateInClient.finished = message.content['finished']
 
 
 def client():
-    # console.rule("[bold red]In register stage")
     console.log(f"{stateInClient.name} start registering", style="bold blue")
     register()  # 向服务器注册
     console.log(f"{stateInClient.name} have registered", style='bold yellow')
+    if stateInClient.finished is False: # 如果没有结束，在register时用
+        dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['batchSize'], 'train',
+                                                f"./data/noniid/{name}")
+        stateInClient.dataIter = dataIter
 
-    dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['batchSize'], 'train',
-                                            "./data/noniid/{}".format(name))
-    stateInClient.dataIter = dataIter
-    # console.rule("[bold red]In training stage")
     while True:
         if stateInClient.finished:
+            sock.close()  # 关闭socket
             break
         stateInClient.addIteration()
-        # console.log(f"training iteration {stateInClient.trainingIterations}...", style='bold red on white')
+
         stateInClient.Net.train(stateInClient.dataIter, stateInClient.name, stateInClient.trainingIterations)
         stateInClient.Net.net.eval()
-        request = create_request(name, 'upload', stateInClient.Net)
-        variableLenContent2 = pickle.dumps(request)
-        connection(host, port, variableLenContent2)
-        try:
-            while True:
-                events = sel.select(timeout=-1)
-                for key, mask in events:
-                    message = key.data
-                    try:
-                        message.process_events(mask, stateInClient)
-                    except Exception:
-                        print(
-                            f"Main: Error: Exception for {message.addr}:\n"
-                            f"{traceback.format_exc()}"
-                        )
-                        message.close()
-                if not sel.get_map():
-                    break
-        except Exception:
-            print("Caught Exception in register, exiting")
+        uploadNet=pickle.dumps(stateInClient.Net)# 上传的模型需要先序列化，
+        content = create_content(name, 'upload', uploadNet)
+        message.content = content
+        writeThread = libclient.WriteThread(message)
+        writeThread.start()
+        writeThread.join()
+        readThread = libclient.ReadThread(message)
+        readThread.start()
+        readThread.join()
+        # 更新全局状态
+        stateInClient.Net = message.content['content']
+        stateInClient.finished = message.content['finished']
+
 
 
 if __name__ == "__main__":

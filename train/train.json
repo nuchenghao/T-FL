@@ -1,8 +1,8 @@
 {
-  "totalTrainIterations": 10,
+  "totalTrainIterations": 3,
   "lr": 0.01,
   "batchSize": 256,
-  "totalEpochesInServer": 20,
+  "totalEpochesInServer": 0,
   "totalEpochesInClient": 1,
   "loss": "CrossEntropyLoss",
   "optimizer": "SGD"

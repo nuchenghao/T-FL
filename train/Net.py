@@ -26,12 +26,12 @@ class Net():
     def getNetParams(self):
         return self.net.state_dict()  # 将模型移到CPU，然后导出模型参数
 
-    def updateNetParams(self, clientModelList):
+    def updateNetParams(self, clientModelQueue):
         self.net.eval()  # 如果网络使用了如BatchNorm这样的层，那么在计算平均参数之前，应该将网络置于评估模式（.eval()），以避免BatchNorm层的运行时统计数据影响参数的值。
         with torch.no_grad():
             # 使用 OrderedDict 保持参数的顺序
             avg_state_dict = OrderedDict()
-            for net in clientModelList:
+            for net in clientModelQueue:
                 state_dict = net.state_dict()
                 for key, param in state_dict.items():
                     if key in avg_state_dict:
@@ -40,7 +40,7 @@ class Net():
                         avg_state_dict[key] = param.clone()
             # 计算平均值
             for key in avg_state_dict.keys():
-                avg_state_dict[key] = avg_state_dict[key] / len(clientModelList)
+                avg_state_dict[key] = avg_state_dict[key] / len(clientModelQueue)
             self.net.load_state_dict(avg_state_dict)
         # print(self.net.state_dict())
 
@@ -74,17 +74,17 @@ class Net():
         cmp = self.astype(y_hat, y.dtype) == y
         return float(self.reduce_sum(self.astype(cmp, y.dtype)))
 
-    def train(self, train_iter, name, iteration, client=True):
+    def train(self, train_iter, name, globalTrainIteration, client=True):
 
         if client:
             # client训练
             numEpochs = self.trainConfigJSON["totalEpochesInClient"]
+            device = "cpu"
         else:
             # 服务器预训练
             numEpochs = self.trainConfigJSON["totalEpochesInServer"]
+            device = "cuda:0"
 
-        # 指定设备，client端拿cpu模拟，所以这里直接指定cpu
-        device = "cpu"
         self.net.to(device)
 
         for epoch in range(numEpochs):
@@ -101,11 +101,12 @@ class Net():
                 metric.add(float(l.sum()), self.accuracy(y_hat, y), y.numel())
             train_acc = metric[1] / metric[2]
             console.log(
-                Padding(f"{name}'s train accuracy in iteration {iteration} is {train_acc * 100:.4f}%", style='bold red',
+                Padding(f"{name}'s train accuracy in iteration {globalTrainIteration} is {train_acc * 100:.4f}%",
+                        style='bold red',
                         pad=(0, 0, 0, 20)))
         self.net.to('cpu')  # 防止server上聚合时出错
 
-    def evaluate_accuracy(self, data_iter, stateInServer):
+    def evaluate_accuracy(self, stateInServer):
         if isinstance(self.net, torch.nn.Module):
             self.net.eval()  # 将模型设置为评估模式
         metric = self.Accumulator(2)  # 正确预测数、预测总数
@@ -115,7 +116,7 @@ class Net():
         self.net.to(device)
 
         with torch.no_grad():
-            for X, y in data_iter:
+            for X, y in stateInServer.dataIter:
                 X, y = X.to(device), y.to(device)
                 metric.add(self.accuracy(self.net(X), y), self.size(y))
         test_acc = metric[0] / metric[1]
