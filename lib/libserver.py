@@ -37,28 +37,25 @@ class Message:
         self.sock = sock
         self.name = ""  # 这个message对应的client的名称
         self.messageId = messageId  # 每个消息的全局ID
-        self.clientModel = None  # 记录client的Net，用于记录上传的模型和要下发的模型
+        self.content = None  # 记录上传或下发的内容
 
-    # def close(self):
-    #     console.log(Padding(f"Closing connection to {self.name}", style="bold cyan", pad=(0, 0, 0, 4)))
-    #     try:
-    #         self.sock.close()  # 关闭socket
-    #     except OSError as e:
-    #         print(f"Error: socket.close() exception for {self.name}: {e!r}")
-    #     finally:
-    #         self.sock = None
+
+    def __repr__(self):
+        return f"{self.name}'s message id is {self.messageId}"
 
 
 class stateInServer:
-    def __init__(self, numOfClients, totalEpoches, allClientMessageQueue, multiprocessingSharedQueue, Net, dataIter,
+    def __init__(self, numOfClients, numOfSelectedClients,totalEpoches, allClientMessageQueue, selectedClientMessageIdQueue,multiprocessingSharedQueue, Net, dataIter,
                  timer):
         self.currentClients = 0
         self.numOfClients = numOfClients  # 所有参与训练的客户数
-
+        self.numOfSelectedClients=numOfSelectedClients #选中的客户端数量
         self.currentEpoch = 0  # 当前的轮次
         self.totalEpoches = totalEpoches  # 总共需要训练的轮次
 
         self.allClientMessageQueue = allClientMessageQueue  # 记录所有的client的message
+        self.selectedClientMessageIdQueue=selectedClientMessageIdQueue#记录每轮被选中的client的message
+
         self.multiprocessingSharedQueue = multiprocessingSharedQueue  # 多进程分享队列，用于server读取client的上传信息
         self.optionState = None  # 表示当前的状态，register/upload/download
         # 训练相关
@@ -185,7 +182,7 @@ class WriteProcess(multiprocessing.Process):
         if self.finished:  # 训练结束
             response = dict(finished=self.finished, content="")
         else:
-            response = dict(finished=self.finished, content=self.message.clientModel)
+            response = dict(finished=self.finished, content=self.message.content)
         response = encode(response)
         return response
 

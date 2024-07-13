@@ -1,5 +1,5 @@
 {
-  "totalTrainIterations": 3,
+  "totalEpoches": 10,
   "lr": 0.01,
   "batchSize": 256,
   "totalEpochesInServer": 0,

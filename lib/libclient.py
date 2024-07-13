@@ -131,17 +131,15 @@ class WriteThread(threading.Thread):
                     self._send_buffer = self._send_buffer[sent:]
             else:
                 break
-        print(f"{self.message.name} has sent to server")
+        # print(f"{self.message.name} has sent to server")
 
 
 class stateInClient:
     def __init__(self, name):
-        self.trainingIterations = 0
         self.finished = False
         self.Net = None
+        self.globalepoch=0
 
         self.dataIter = None
         self.name = name
 
-    def addIteration(self):
-        self.trainingIterations += 1

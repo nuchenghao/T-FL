@@ -1,10 +1,10 @@
 import json
 import pickle
-import sys
 import socket
 import selectors
-import traceback
-
+import random
+import logging
+import time
 from lib import libserver
 from tool import Timer
 from train import Net
@@ -25,8 +25,9 @@ ipOfServer = configOfServer['host']  # server的ip地址
 portOfServer = configOfServer['port']  # server的监听端口
 
 numOfClients = configOfServer['numOfClients']  # 客户端数量
+numOfSelectedClients = configOfServer['numOfSelectedClients']  # 选择的客户端数量
 
-totalTrainIterations = trainConfigJSON['totalTrainIterations']  # 总的全局训练轮数
+totalEpoches = trainConfigJSON['totalEpoches']  # 总的全局训练轮数
 loss = trainConfigJSON['loss']  # 训练的损失函数
 optimizer = trainConfigJSON['optimizer']  # 优化器
 
@@ -36,8 +37,10 @@ Net.initNet()  # 网络初始化
 evalDataIter = data.load_data_fashion_mnist(trainConfigJSON["batchSize"], 'test', name='server', resize=96)  # 测试集迭代器
 timer = Timer.Timer()  # 计时器
 allClientMessageQueue = []  # 存储所有client对应的message
+selectedClientMessageIdQueue = []  # 存储被选中的client的messageId
 multiprocessingSharedQueue = multiprocessing.Queue()  # 所有子进程可以访问的共享队列
-stateInServer = libserver.stateInServer(numOfClients, totalTrainIterations, allClientMessageQueue,
+stateInServer = libserver.stateInServer(numOfClients, numOfSelectedClients, totalEpoches, allClientMessageQueue,
+                                        selectedClientMessageIdQueue,
                                         multiprocessingSharedQueue, Net, evalDataIter, timer)
 
 # 输出设置----------------------------------------------------------
@@ -68,42 +71,79 @@ def accept_wrapper(sock):
 # 其他--------------------------------------------------------------------
 printLock = multiprocessing.RLock()
 
-if __name__ == '__main__':
+
+# --------------------------------------------------------------------------------------------
+
+def selectClientMethod(method="random") -> list:
+    numbers = list(range(0, stateInServer.numOfClients))
+    random_sequence = random.sample(numbers, stateInServer.numOfSelectedClients)
+    return random_sequence
+
+
+def registerStage():
     try:
         while True:
             events = sel.select(timeout=0)  # 非阻塞调用,立即返回可用的文件描述符,而不等待
             for key, mask in events:
-                if key.data is None:  # 服务端的listening socket；意味着有一个新的连接到来
+                if key.data is None:  # 服务端的listening socket；意味着有一个新的连接到来，需要注册
                     accept_wrapper(key.fileobj)
                 else:
-                    # 一个已经注册过的socket
                     message = key.data  # 获得该client对应的message
                     sel.modify(message.sock, 0, data=message)  # 将这个sock在sel中的状态暂时挂起
-                    if mask & selectors.EVENT_READ:  # client的读事件
+                    if mask & selectors.EVENT_READ:  # 注册阶段只有读事件
                         readProcess = libserver.ReadProcess(message, printLock, console,
                                                             stateInServer.multiprocessingSharedQueue)
                         readProcess.start()
-                    if mask & selectors.EVENT_WRITE:  # client的写事件
-                        writeProcess = libserver.WriteProcess(message, printLock, console,
-                                                              stateInServer.multiprocessingSharedQueue,
-                                                              stateInServer.finish())
-                        writeProcess.start()
-            # 子进程处理完，同步父进程相关内容
-            if stateInServer.multiprocessingSharedQueue.qsize() == stateInServer.numOfClients:  # 所有的子进程都已经结束
+            if stateInServer.multiprocessingSharedQueue.qsize() == stateInServer.numOfClients:  # 所有的用户都已经注册了
                 while stateInServer.multiprocessingSharedQueue.qsize():
                     option, msgID, value = stateInServer.multiprocessingSharedQueue.get()
-                    # with printLock:
-                    #     print(f"{option},{msgID},{value}")
-                    if option == "finishRegister":
+                    msg = stateInServer.allClientMessageQueue[msgID]
+                    assert msg.messageId == msgID, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
+                    stateInServer.allClientMessageQueue[msgID].name = value
+                    stateInServer.optionState = 'finishRegister'
+            if stateInServer.optionState is not None:
+                console.rule("[bold red]In training stage")
+                if not stateInServer.finish():
+                    console.log(f"Start globalepoch {stateInServer.currentEpoch + 1}", style="bold white on green")
+                    stateInServer.timer.start()  # 开始计时
+                stateInServer.selectedClientMessageIdQueue = selectClientMethod() if not stateInServer.finish() else list(
+                    range(0, stateInServer.numOfClients))
+                for clintID in stateInServer.selectedClientMessageIdQueue:
+                    msg = stateInServer.allClientMessageQueue[clintID]
+                    assert msg.messageId == clintID, f"the messageId {msg} is not equal to selected clientId {clintID}"
+                    msg.content = dict(net=stateInServer.Net, globalepoch=stateInServer.currentEpoch + 1)  # 开始下发信息
+                    sel.modify(msg.sock, selectors.EVENT_WRITE, data=msg)  # 修改该socket为可写
+                break
+    except KeyboardInterrupt:
+        print("Caught keyboard interrupt, exiting")
+
+
+def trainingStage():
+    try:
+        while True:
+            events = sel.select(timeout=0)  # 非阻塞调用,立即返回可用的文件描述符,而不等待
+            for key, mask in events:
+                message = key.data  # 获得该client对应的message
+                sel.modify(message.sock, 0, data=message)  # 将这个sock在sel中的状态暂时挂起
+                if mask & selectors.EVENT_READ:  # client的读事件
+                    readProcess = libserver.ReadProcess(message, printLock, console,
+                                                        stateInServer.multiprocessingSharedQueue)
+                    readProcess.start()
+                if mask & selectors.EVENT_WRITE:  # client的写事件
+                    writeProcess = libserver.WriteProcess(message, printLock, console,
+                                                          stateInServer.multiprocessingSharedQueue,
+                                                          stateInServer.finish())
+                    writeProcess.start()
+            # 子进程处理完，同步父进程相关内容
+            if stateInServer.multiprocessingSharedQueue.qsize() == len(
+                    stateInServer.selectedClientMessageIdQueue):  # 所有的子进程都已经结束
+                while stateInServer.multiprocessingSharedQueue.qsize():
+                    option, msgID, value = stateInServer.multiprocessingSharedQueue.get()
+                    if option == "finishUpload":
                         msg = stateInServer.allClientMessageQueue[msgID]
-                        assert msg.messageId == msgID, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
-                        stateInServer.allClientMessageQueue[msgID].name = value
-                        stateInServer.optionState = 'finishRegister'
-                    elif option == "finishUpload":
-                        msg = stateInServer.allClientMessageQueue[msgID]
-                        assert msg.messageId == msgID, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
+                        assert msg.messageId == msgID and msg.messageId in stateInServer.selectedClientMessageIdQueue, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
                         value = pickle.loads(value)  # 这里通过multiprocessing.Queue()来传递，需要先传序列化的内容，父进程接收到后再序列化
-                        msg.clientModel = value  # 记录上传的网络
+                        msg.content = value  # 记录上传的网络
                         stateInServer.optionState = 'finishUpload'
                     elif option == "finishDownload":  # 下发完成
                         msg = stateInServer.allClientMessageQueue[msgID]
@@ -111,23 +151,25 @@ if __name__ == '__main__':
                         stateInServer.optionState = "finishDownload"
             # 同步完成，业务处理
             if stateInServer.optionState is not None:
-                if stateInServer.optionState == 'finishRegister':  #
-                    console.rule("[bold red]In training stage")
-                    for msg in stateInServer.allClientMessageQueue:
-                        msg.clientModel = stateInServer.Net  # 开始下发模型
-                        sel.modify(msg.sock, selectors.EVENT_WRITE, data=msg)  # 修改该socket为可写
-                elif stateInServer.optionState == 'finishUpload':  # 聚合，验证，更新每个client的下发模型
+                if stateInServer.optionState == 'finishUpload':  # 聚合，验证，更新每个client的下发模型
                     clientModelQueue = []
-                    for msg in stateInServer.allClientMessageQueue:
-                        clientModelQueue.append(msg.clientModel.net)  # 只需要模型
+                    for clientId in stateInServer.selectedClientMessageIdQueue:
+                        clientModelQueue.append(
+                            stateInServer.allClientMessageQueue[clientId].content.net)  # 更新被选中的client的Net
                     stateInServer.Net.updateNetParams(clientModelQueue)  # 聚合
                     stateInServer.Net.evaluate_accuracy(stateInServer)  # 验证
-                    stateInServer.addEpoch()
-                    for msg in stateInServer.allClientMessageQueue:
-                        msg.clientModel = stateInServer.Net
-                        sel.modify(msg.sock, selectors.EVENT_WRITE, data=msg)  # 可以下发模型
+                    stateInServer.addEpoch()  # 至此，一轮结束
 
-                    stateInServer.timer.start()  # 开始计时
+                    if not stateInServer.finish():
+                        console.log(f"Start globalepoch {stateInServer.currentEpoch + 1}", style="bold white on green")
+                        stateInServer.timer.start()  # 开始计时
+                    stateInServer.selectedClientMessageIdQueue = selectClientMethod() if not stateInServer.finish() else list(
+                        range(0, stateInServer.numOfClients))
+                    for clintID in stateInServer.selectedClientMessageIdQueue:
+                        msg = stateInServer.allClientMessageQueue[clintID]
+                        msg.content = dict(net=stateInServer.Net, globalepoch=stateInServer.currentEpoch + 1)  # 开始下发信息
+                        sel.modify(msg.sock, selectors.EVENT_WRITE, data=msg)  # 修改该socket为可写
+
                 elif stateInServer.optionState == 'finishDownload':  # 全都下发完成
                     if stateInServer.finish():  # 如果结束训练，则关闭socket，退出
                         with printLock:
@@ -136,13 +178,21 @@ if __name__ == '__main__':
                             sel.unregister(msg.sock)  # 注销该socket
                             msg.sock.close()
                         break
-                    for msg in stateInServer.allClientMessageQueue:
+                    for clientID in stateInServer.selectedClientMessageIdQueue:
+                        msg = stateInServer.allClientMessageQueue[clientID]
                         sel.modify(msg.sock, selectors.EVENT_READ, data=msg)  # 等待模型上传
                 stateInServer.optionState = None
-
-
 
     except KeyboardInterrupt:
         print("Caught keyboard interrupt, exiting")
     finally:
         sel.close()
+
+
+def main():
+    registerStage()
+    trainingStage()
+
+
+if __name__ == '__main__':
+    main()

@@ -31,7 +31,7 @@ addr = (host, port)
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # 每个client创建一个连接server的socket
 sock.setblocking(False)
 sock.connect_ex(addr)
-message = libclient.Message(sock, None,name)
+message = libclient.Message(sock, None, name)
 
 
 def create_content(name, action, value):
@@ -49,15 +49,16 @@ def register():
     readThread = libclient.ReadThread(message)  # 等待serve返回信息
     readThread.start()
     readThread.join()
-    stateInClient.Net = message.content['content']
     stateInClient.finished = message.content['finished']
 
 
 def client():
     console.log(f"{stateInClient.name} start registering", style="bold blue")
     register()  # 向服务器注册
-    console.log(f"{stateInClient.name} have registered", style='bold yellow')
-    if stateInClient.finished is False: # 如果没有结束，在register时用
+    # console.log(f"{stateInClient.name} has register", style='bold yellow')
+    if stateInClient.finished is False:  # 如果没有结束，在register时用
+        stateInClient.Net = message.content.get('content').get('net')
+        stateInClient.globalepoch = message.content.get('content').get('globalepoch')
         dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['batchSize'], 'train',
                                                 f"./data/noniid/{name}")
         stateInClient.dataIter = dataIter
@@ -66,11 +67,11 @@ def client():
         if stateInClient.finished:
             sock.close()  # 关闭socket
             break
-        stateInClient.addIteration()
-
-        stateInClient.Net.train(stateInClient.dataIter, stateInClient.name, stateInClient.trainingIterations)
+        console.log(f"{stateInClient.name} has been selected in globalepoch {stateInClient.globalepoch}",
+                    style='bold yellow')
+        stateInClient.Net.train(stateInClient.dataIter, stateInClient.name, stateInClient.globalepoch)
         stateInClient.Net.net.eval()
-        uploadNet=pickle.dumps(stateInClient.Net)# 上传的模型需要先序列化，
+        uploadNet = pickle.dumps(stateInClient.Net)  # 上传的模型需要先序列化，
         content = create_content(name, 'upload', uploadNet)
         message.content = content
         writeThread = libclient.WriteThread(message)
@@ -80,9 +81,10 @@ def client():
         readThread.start()
         readThread.join()
         # 更新全局状态
-        stateInClient.Net = message.content['content']
         stateInClient.finished = message.content['finished']
-
+        if not stateInClient.finished:
+            stateInClient.Net = message.content.get('content').get('net')
+            stateInClient.globalepoch = message.content.get('content').get('globalepoch')
 
 
 if __name__ == "__main__":
