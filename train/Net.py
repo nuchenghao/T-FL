@@ -86,7 +86,7 @@ class Net():
             device = "cuda:0"
 
         self.net.to(device)
-
+        train_acc = 0
         for epoch in range(numEpochs):
             if isinstance(self.net, torch.nn.Module):
                 self.net.train()
@@ -105,6 +105,7 @@ class Net():
                         style='bold red',
                         pad=(0, 0, 0, 20)))
         self.net.to('cpu')  # 防止server上聚合时出错
+        return train_acc
 
     def evaluate_accuracy(self, stateInServer):
         if isinstance(self.net, torch.nn.Module):
@@ -120,6 +121,9 @@ class Net():
                 X, y = X.to(device), y.to(device)
                 metric.add(self.accuracy(self.net(X), y), self.size(y))
         test_acc = metric[0] / metric[1]
-        stateInServer.resultRecord.append((stateInServer.timer.stop(), test_acc))  # (分钟，精度)
-        console.log(Padding(f"the test accuracy is {test_acc * 100:.4f}% in globalepoch {stateInServer.currentEpoch+1}", style='bold red', pad=(0, 0, 0, 4)))
+        stateInServer.resultRecord.append((stateInServer.timer.stop('m'), test_acc))  # (分钟，精度)
+        console.log(
+            Padding(f"the test accuracy is {test_acc * 100:.4f}% in globalepoch {stateInServer.currentEpoch + 1}",
+                    style='bold red', pad=(0, 0, 0, 4)))
         self.net.to('cpu')  # 防止下发时出错
+        return test_acc

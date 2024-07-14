@@ -1,5 +1,8 @@
 {
-  "totalEpoches": 10,
+  "algorithm": "FedAvg",
+  "data": "FashionMNIST",
+  "model": "ResNet-18",
+  "totalEpoches": 5,
   "lr": 0.01,
   "batchSize": 256,
   "totalEpochesInServer": 0,

@@ -33,10 +33,10 @@ def json_decode(json_bytes, encoding):
 
 
 class Message:
-    def __init__(self, sock, content,name):
+    def __init__(self, sock, content, name):
         self.sock = sock
         self.content = content  # 发送和接收的内容(非序列化的)
-        self.name=name
+        self.name = name
 
 
 class ReadThread(threading.Thread):
@@ -135,11 +135,10 @@ class WriteThread(threading.Thread):
 
 
 class stateInClient:
-    def __init__(self, name):
+    def __init__(self, name, timer):
         self.finished = False
         self.Net = None
-        self.globalepoch=0
-
+        self.globalepoch = 0
+        self.timer = timer
         self.dataIter = None
         self.name = name
-

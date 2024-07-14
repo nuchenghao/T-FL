@@ -1,6 +1,6 @@
 import multiprocessing
 import sys
-import selectors
+import logging
 import json
 import io
 import struct
@@ -8,6 +8,8 @@ import pickle
 import datetime
 from rich.padding import Padding
 import time
+
+logger = logging.getLogger("T-FL")
 
 
 def encode(obj):
@@ -33,28 +35,33 @@ def json_decode(json_bytes, encoding):
 
 
 class Message:
-    def __init__(self, sock, messageId):
+    def __init__(self, sock, messageId, timer):
         self.sock = sock
         self.name = ""  # 这个message对应的client的名称
         self.messageId = messageId  # 每个消息的全局ID
         self.content = None  # 记录上传或下发的内容
+        self.timer = timer  # 每个client一个独有的时钟
+        self.record = []  # 记录训练数据，记录格式：(总时间，传输耗费时间，训练时间，轮次，该轮次的局部训练精度)
 
+    def __repr__(self):  # 日志输出用
+        return f"\n{self.name}'s message id is {self.messageId}"  # 为了适应日志输出，加上换行符
 
-    def __repr__(self):
-        return f"{self.name}'s message id is {self.messageId}"
+    def summaryOutput(self):
+        return f"{self.name}'s message id is {self.messageId}. In globalepoch {self.record[-1][3]},he's time is {self.record[-1][0]},transmission time is {self.record[-1][1]},training time is {self.record[-1][2]} and the local accuracy is {self.record[-1][4]}\n"
 
 
 class stateInServer:
-    def __init__(self, numOfClients, numOfSelectedClients,totalEpoches, allClientMessageQueue, selectedClientMessageIdQueue,multiprocessingSharedQueue, Net, dataIter,
+    def __init__(self, numOfClients, numOfSelectedClients, totalEpoches, allClientMessageQueue,
+                 selectedClientMessageIdQueue, multiprocessingSharedQueue, Net, dataIter,
                  timer):
         self.currentClients = 0
         self.numOfClients = numOfClients  # 所有参与训练的客户数
-        self.numOfSelectedClients=numOfSelectedClients #选中的客户端数量
+        self.numOfSelectedClients = numOfSelectedClients  # 选中的客户端数量
         self.currentEpoch = 0  # 当前的轮次
         self.totalEpoches = totalEpoches  # 总共需要训练的轮次
 
         self.allClientMessageQueue = allClientMessageQueue  # 记录所有的client的message
-        self.selectedClientMessageIdQueue=selectedClientMessageIdQueue#记录每轮被选中的client的message
+        self.selectedClientMessageIdQueue = selectedClientMessageIdQueue  # 记录每轮被选中的client的message
 
         self.multiprocessingSharedQueue = multiprocessingSharedQueue  # 多进程分享队列，用于server读取client的上传信息
         self.optionState = None  # 表示当前的状态，register/upload/download
@@ -82,7 +89,7 @@ class stateInServer:
 
 
 class ReadProcess(multiprocessing.Process):
-    def __init__(self, message, printLock, console,multiprocessingSharedQueue):
+    def __init__(self, message, printLock, console, multiprocessingSharedQueue):
         super().__init__()
         self.message = message
         self.printLock = printLock
@@ -129,7 +136,7 @@ class ReadProcess(multiprocessing.Process):
             self.name = self.request.get('name')
             with self.printLock:
                 self.console.log(Padding(f"Received {self.name} register request", style="bold yellow",
-                                pad=(0, 0, 0, 4)))
+                                         pad=(0, 0, 0, 4)))
             self.multiprocessingSharedQueue.put(
                 ("finishRegister", self.message.messageId, self.name))  # 返回给server修改,第2个参数表示对应的message
 
@@ -138,11 +145,14 @@ class ReadProcess(multiprocessing.Process):
             uploadedNet = self.request.get('content')
             with self.printLock:
                 self.console.log(
-                Padding(f"Received {self.name} upload request", style='bold yellow', pad=(0, 0, 0, 4)))
+                    Padding(f"Received {self.name} upload request", style='bold yellow', pad=(0, 0, 0, 4)))
                 # print(uploadedNet)
             self.multiprocessingSharedQueue.put(("finishUpload", self.message.messageId, uploadedNet))
 
     def run(self):
+        with self.printLock:
+            logger.info(
+                f"start reading {self.message.name}'s upload whose messageId is {self.message.messageId}" if self.message.name != "" else "A new connection!")
         while True:
             self._read()
             if self._jsonheader_len is None:
@@ -155,10 +165,13 @@ class ReadProcess(multiprocessing.Process):
                     self.process_request()
                 if self.request is not None:
                     break
+        with self.printLock:
+            logger.info(
+                f"finish reading {self.message.name}'s upload whose messageId is {self.message.messageId}" if self.message.name != "" else "A new connection accepted!")
 
 
 class WriteProcess(multiprocessing.Process):
-    def __init__(self, message, printLock,console, multiprocessingSharedQueue, finished):
+    def __init__(self, message, printLock, console, multiprocessingSharedQueue, finished):
         super().__init__()
         self.message = message
         self.printLock = printLock
@@ -187,6 +200,8 @@ class WriteProcess(multiprocessing.Process):
         return response
 
     def run(self):
+        with self.printLock:
+            logger.info(f"start sending to {self.message.name} whose messageId is {self.message.messageId}")
         response = self._create_response()
         message = self._create_message(response)  # 加两个头文件
         self._send_buffer += message
@@ -200,7 +215,8 @@ class WriteProcess(multiprocessing.Process):
                     self._send_buffer = self._send_buffer[sent:]
             else:
                 break
+        self.multiprocessingSharedQueue.put(("finishDownload", self.message.messageId, ""))
         with self.printLock:
             self.console.log(
                 Padding(f"Sent to {self.message.name}", style='bold yellow', pad=(0, 0, 0, 4)))
-        self.multiprocessingSharedQueue.put(("finishDownload", self.message.messageId, ""))
+            logger.info(f"Sent to {self.message.name} whose messageId is {self.message.messageId}")

@@ -8,7 +8,7 @@ import argparse
 # 输出设置----------------------------------------------------------
 from rich.console import Console
 from rich.padding import Padding
-from tool import data
+from tool import data, Timer
 
 console = Console()  # 终端输出对象
 
@@ -24,8 +24,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--name', type=str, required=True, help="name of client")
 args = parser.parse_args()
 name = args.name  # client名
-
-stateInClient = libclient.stateInClient(name)
+timer = Timer.Timer()
+stateInClient = libclient.stateInClient(name, timer)
 # 通信相关-------------------------------------------------------
 addr = (host, port)
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # 每个client创建一个连接server的socket
@@ -34,9 +34,11 @@ sock.connect_ex(addr)
 message = libclient.Message(sock, None, name)
 
 
-def create_content(name, action, value):
-    # 这个就是上传的格式
-    return dict(name=name, action=action, content=value)
+def create_content(name, action, value):  # 这个就是上传的格式
+
+    return dict(name=name,
+                action=action,
+                content=value)
 
 
 def register():
@@ -69,10 +71,15 @@ def client():
             break
         console.log(f"{stateInClient.name} has been selected in globalepoch {stateInClient.globalepoch}",
                     style='bold yellow')
-        stateInClient.Net.train(stateInClient.dataIter, stateInClient.name, stateInClient.globalepoch)
+        stateInClient.timer.start()  # 开始计时
+        trainAcc = stateInClient.Net.train(stateInClient.dataIter, stateInClient.name, stateInClient.globalepoch)
+        trainTime = stateInClient.timer.stop("s")  # 记录训练时间
         stateInClient.Net.net.eval()
-        uploadNet = pickle.dumps(stateInClient.Net)  # 上传的模型需要先序列化，
-        content = create_content(name, 'upload', uploadNet)
+
+        contentSendToServer = dict(net=stateInClient.Net, trainTime=trainTime, trainAcc=trainAcc)
+        contentSendToServer = pickle.dumps(contentSendToServer)  # 上传的模型需要先序列化，
+
+        content = create_content(name, 'upload', contentSendToServer)
         message.content = content
         writeThread = libclient.WriteThread(message)
         writeThread.start()

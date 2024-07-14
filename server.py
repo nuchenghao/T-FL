@@ -15,6 +15,15 @@ from rich.padding import Padding
 
 import multiprocessing
 
+# 日志模块-------------------------------------------------------------------------------------------------
+logger = logging.getLogger("T-FL")
+logger.setLevel(logging.INFO)
+f_handler = logging.FileHandler(f'./log/{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}.log', 'w')
+f_handler.setLevel(logging.INFO)
+f_format = logging.Formatter("""%(asctime)s:
+%(message)s""", datefmt='%Y-%m-%d %H:%M:%S')  # 输出格式
+f_handler.setFormatter(f_format)
+logger.addHandler(f_handler)
 # 设置server的state -------------------------------------------------------------------
 with open("./config/server.json", 'r', encoding='utf-8') as file:
     configOfServer = json.load(file)  # server的配置文件
@@ -62,7 +71,8 @@ def accept_wrapper(sock):
     # 为每个新连接创建socket
     conn, addr = sock.accept()
     conn.setblocking(False)
-    message = libserver.Message(conn, stateInServer.currentClients)  # 按照连接的顺序给每个socket一个编号，从0开始
+    timer = Timer.Timer()  # 为每个client的message创建一个计时器
+    message = libserver.Message(conn, stateInServer.currentClients, timer)  # 按照连接的顺序给每个socket一个编号，从0开始
     sel.register(conn, selectors.EVENT_READ, data=message)
     stateInServer.addClient()  # 注册一个新的用户，因为我们需要stateInServer.currentClients作为message的编号
     stateInServer.allClientMessageQueue.append(message)  # 将这个message放入队列
@@ -101,18 +111,29 @@ def registerStage():
                     assert msg.messageId == msgID, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
                     stateInServer.allClientMessageQueue[msgID].name = value
                     stateInServer.optionState = 'finishRegister'
+                logger.info(
+                    f"all the clients has registered! The stateInServer.allClientMessageQueue is {stateInServer.allClientMessageQueue}")
             if stateInServer.optionState is not None:
                 console.rule("[bold red]In training stage")
                 if not stateInServer.finish():
                     console.log(f"Start globalepoch {stateInServer.currentEpoch + 1}", style="bold white on green")
                     stateInServer.timer.start()  # 开始计时
+                    logger.info(
+                        f"---------------------- Start globalepoch {stateInServer.currentEpoch + 1} !-----------------------------------------")
                 stateInServer.selectedClientMessageIdQueue = selectClientMethod() if not stateInServer.finish() else list(
                     range(0, stateInServer.numOfClients))
+                if not stateInServer.finish():
+                    logger.info(
+                        f"the selected clients are {[stateInServer.allClientMessageQueue[clientID] for clientID in stateInServer.selectedClientMessageIdQueue]}")
+                else:
+                    logger.info(f"Training will finish! Start closing socket to all clients")
                 for clintID in stateInServer.selectedClientMessageIdQueue:
                     msg = stateInServer.allClientMessageQueue[clintID]
                     assert msg.messageId == clintID, f"the messageId {msg} is not equal to selected clientId {clintID}"
                     msg.content = dict(net=stateInServer.Net, globalepoch=stateInServer.currentEpoch + 1)  # 开始下发信息
                     sel.modify(msg.sock, selectors.EVENT_WRITE, data=msg)  # 修改该socket为可写
+                    if not stateInServer.finish():
+                        msg.timer.start()  # 开始计时
                 break
     except KeyboardInterrupt:
         print("Caught keyboard interrupt, exiting")
@@ -145,30 +166,53 @@ def trainingStage():
                         value = pickle.loads(value)  # 这里通过multiprocessing.Queue()来传递，需要先传序列化的内容，父进程接收到后再序列化
                         msg.content = value  # 记录上传的网络
                         stateInServer.optionState = 'finishUpload'
+                        totalTime = msg.timer.stop("s")  # 这个时间记录的有些问题，因为要等待所有的client上传后才能统计，所以有很大延迟
+                        # 记录的格式为：(总时间，传输耗费时间，训练时间，轮次，该轮次的局部训练精度)
+                        msg.record.append((totalTime, totalTime - msg.content['trainTime'], msg.content['trainTime'],
+                                           stateInServer.currentEpoch + 1, msg.content['trainAcc']))
                     elif option == "finishDownload":  # 下发完成
                         msg = stateInServer.allClientMessageQueue[msgID]
                         assert msg.messageId == msgID, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
                         stateInServer.optionState = "finishDownload"
+                with printLock:
+                    logger.info(
+                        "Finish synchronizing all selected clients' upload" if stateInServer.optionState == "finishUpload" else "Finish sending to all selected clients")
             # 同步完成，业务处理
             if stateInServer.optionState is not None:
                 if stateInServer.optionState == 'finishUpload':  # 聚合，验证，更新每个client的下发模型
+                    logger.info("Start aggregating all selected clients' model")
                     clientModelQueue = []
                     for clientId in stateInServer.selectedClientMessageIdQueue:
                         clientModelQueue.append(
-                            stateInServer.allClientMessageQueue[clientId].content.net)  # 更新被选中的client的Net
+                            stateInServer.allClientMessageQueue[clientId].content['net'].net)  # 更新被选中的client的Net
                     stateInServer.Net.updateNetParams(clientModelQueue)  # 聚合
-                    stateInServer.Net.evaluate_accuracy(stateInServer)  # 验证
+                    logger.info("start evaluating aggregrated model")
+                    test_acc = stateInServer.Net.evaluate_accuracy(stateInServer)  # 验证
                     stateInServer.addEpoch()  # 至此，一轮结束
+                    logger.info(
+                        f"Finish evaluating ! The accuracy on test dataset is {test_acc * 100:.4f}% in globalepoch {stateInServer.currentEpoch}")
+                    summary = ""
+                    for clientID in stateInServer.selectedClientMessageIdQueue:
+                        summary += stateInServer.allClientMessageQueue[clientID].summaryOutput()
+                    logger.info(f"Summary:\n{summary}")
 
                     if not stateInServer.finish():
                         console.log(f"Start globalepoch {stateInServer.currentEpoch + 1}", style="bold white on green")
-                        stateInServer.timer.start()  # 开始计时
+                        logger.info(
+                            f"---------------------- Start globalepoch {stateInServer.currentEpoch + 1} !-----------------------------------------")
                     stateInServer.selectedClientMessageIdQueue = selectClientMethod() if not stateInServer.finish() else list(
                         range(0, stateInServer.numOfClients))
+                    if not stateInServer.finish():
+                        logger.info(
+                            f"the selected clients are {[stateInServer.allClientMessageQueue[clientID] for clientID in stateInServer.selectedClientMessageIdQueue]}")
+                    else:
+                        logger.info(f"Training will finish! Start closing socket to all clients")
                     for clintID in stateInServer.selectedClientMessageIdQueue:
                         msg = stateInServer.allClientMessageQueue[clintID]
                         msg.content = dict(net=stateInServer.Net, globalepoch=stateInServer.currentEpoch + 1)  # 开始下发信息
                         sel.modify(msg.sock, selectors.EVENT_WRITE, data=msg)  # 修改该socket为可写
+                        if not stateInServer.finish():
+                            msg.timer.start()  # 开始计时
 
                 elif stateInServer.optionState == 'finishDownload':  # 全都下发完成
                     if stateInServer.finish():  # 如果结束训练，则关闭socket，退出
@@ -177,6 +221,7 @@ def trainingStage():
                         for msg in stateInServer.allClientMessageQueue:
                             sel.unregister(msg.sock)  # 注销该socket
                             msg.sock.close()
+                        logger.info("---------------------------finish---------------------------------")
                         break
                     for clientID in stateInServer.selectedClientMessageIdQueue:
                         msg = stateInServer.allClientMessageQueue[clientID]
@@ -190,6 +235,13 @@ def trainingStage():
 
 
 def main():
+    logger.info(
+        f"""
+Start training
+There are {stateInServer.numOfClients} clients. Each time {stateInServer.numOfSelectedClients} selected to participate in the training.
+The training config is :
+{json.dumps(trainConfigJSON, indent=4)}
+""")  # 训练开始前做一次log
     registerStage()
     trainingStage()
 
