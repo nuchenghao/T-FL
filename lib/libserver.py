@@ -6,6 +6,8 @@ import io
 import struct
 import pickle
 import datetime
+import threading
+
 from rich.padding import Padding
 import time
 
@@ -52,7 +54,7 @@ class Message:
 
 class stateInServer:
     def __init__(self, numOfClients, numOfSelectedClients, totalEpoches, allClientMessageQueue,
-                 selectedClientMessageIdQueue, multiprocessingSharedQueue, Net, dataIter,
+                 selectedClientMessageIdQueue, sharedQueue, Net, dataIter,
                  timer):
         self.currentClients = 0
         self.numOfClients = numOfClients  # 所有参与训练的客户数
@@ -63,7 +65,7 @@ class stateInServer:
         self.allClientMessageQueue = allClientMessageQueue  # 记录所有的client的message
         self.selectedClientMessageIdQueue = selectedClientMessageIdQueue  # 记录每轮被选中的client的message
 
-        self.multiprocessingSharedQueue = multiprocessingSharedQueue  # 多进程分享队列，用于server读取client的上传信息
+        self.sharedQueue = sharedQueue  # 多线程共享队列
         self.optionState = None  # 表示当前的状态，register/upload/download
         # 训练相关
         self.Net = Net  # 网络
@@ -89,12 +91,13 @@ class stateInServer:
 
 
 class ReadProcess(multiprocessing.Process):
-    def __init__(self, message, printLock, console, multiprocessingSharedQueue):
+    def __init__(self, message, printLock, console, event, multiprocessingSharedQueue):
         super().__init__()
         self.message = message
         self.printLock = printLock
         self.console = console
-        self.multiprocessingSharedQueue = multiprocessingSharedQueue
+        self.event = event  # 事件
+        self.multiprocessingSharedQueue = multiprocessingSharedQueue  # 与父进程的某个子线程进行信息传递的队列
         self._recv_buffer = b""  # 接收缓冲区
         self._jsonheader_len = None
         self.jsonheader = None
@@ -168,14 +171,57 @@ class ReadProcess(multiprocessing.Process):
         with self.printLock:
             logger.info(
                 f"finish reading {self.message.name}'s upload whose messageId is {self.message.messageId}" if self.message.name != "" else "A new connection accepted!")
+        self.event.set()  # 读进程完成，对应的父进程的子线程可以开始处理数据
+
+
+class MyThread(threading.Thread):  # 每个线程与一个进程对应
+    def __init__(self, stateInServer, stateInServerLock, event, multiprocessingSharedQueue):
+        super().__init__()
+        self.event = event
+        self.stateInServer = stateInServer
+        self.stateInServerLock = stateInServerLock
+        self.multiprocessingSharedQueue = multiprocessingSharedQueue
+
+    def run(self):
+        self.event.wait()  # 等待对应的子进程完成
+        option, msgID, value = self.multiprocessingSharedQueue.get()
+        if option == "finishRegister":  # 一个注册进程
+            with self.stateInServerLock:
+                msg = self.stateInServer.allClientMessageQueue[msgID]
+                assert msg.messageId == msgID, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
+                msg.name = value
+                self.stateInServer.sharedQueue.put("register")
+                self.stateInServer.optionState = 'finishRegister' if self.stateInServer.sharedQueue.qsize() == self.stateInServer.numOfClients else None
+        elif option == "finishUpload":
+            with self.stateInServerLock:
+                msg = self.stateInServer.allClientMessageQueue[msgID]
+                assert msg.messageId == msgID and msg.messageId in self.stateInServer.selectedClientMessageIdQueue, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
+                value = pickle.loads(value)  # 这里通过multiprocessing.Queue()来传递，需要先传序列化的内容，父进程接收到后再序列化
+                msg.content = value  # 记录上传的网络
+                totalTime = msg.timer.stop("s")
+                # 记录的格式为：(总时间，传输耗费时间，训练时间，轮次，该轮次的局部训练精度)
+                msg.record.append((totalTime, totalTime - msg.content['trainTime'], msg.content['trainTime'],
+                                   self.stateInServer.currentEpoch + 1, msg.content['trainAcc']))
+                self.stateInServer.sharedQueue.put(msg.content['net'].net)  # 放入client上传的网络
+                self.stateInServer.optionState = 'finishUpload' if self.stateInServer.sharedQueue.qsize() == len(
+                    self.stateInServer.selectedClientMessageIdQueue) else None
+        elif option == "finishDownload":  # 下发完成
+            with self.stateInServerLock:
+                msg = self.stateInServer.allClientMessageQueue[msgID]
+                assert msg.messageId == msgID, f"the msgID {msgID} is not equal to msg.messageId{msg.messageId}"
+                self.stateInServer.optionState = "finishDownload"
+                self.stateInServer.sharedQueue.put('download')
+                self.stateInServer.optionState = 'finishDownload' if self.stateInServer.sharedQueue.qsize() == len(
+                    self.stateInServer.selectedClientMessageIdQueue) else None
 
 
 class WriteProcess(multiprocessing.Process):
-    def __init__(self, message, printLock, console, multiprocessingSharedQueue, finished):
+    def __init__(self, message, printLock, console, event, multiprocessingSharedQueue, finished):
         super().__init__()
         self.message = message
         self.printLock = printLock
         self.console = console
+        self.event = event
         self.multiprocessingSharedQueue = multiprocessingSharedQueue  # 共享队列
         self._send_buffer = b""  # 写缓冲区
         self.finished = finished  # 是否训练结束
@@ -220,3 +266,4 @@ class WriteProcess(multiprocessing.Process):
             self.console.log(
                 Padding(f"Sent to {self.message.name}", style='bold yellow', pad=(0, 0, 0, 4)))
             logger.info(f"Sent to {self.message.name} whose messageId is {self.message.messageId}")
+        self.event.set()

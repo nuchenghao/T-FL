@@ -34,7 +34,7 @@ sock.connect_ex(addr)
 message = libclient.Message(sock, None, name)
 
 
-def create_content(name, action, value):  # 这个就是上传的格式
+def create_content(name, action, value):  # 这个就是上传的内容格式
 
     return dict(name=name,
                 action=action,
@@ -61,7 +61,7 @@ def client():
     if stateInClient.finished is False:  # 如果没有结束，在register时用
         stateInClient.Net = message.content.get('content').get('net')
         stateInClient.globalepoch = message.content.get('content').get('globalepoch')
-        dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['batchSize'], 'train',
+        dataIter = data.load_data_fashion_mnist(stateInClient.Net.trainConfigJSON['config']['batchSize'], 'train',
                                                 f"./data/noniid/{name}")
         stateInClient.dataIter = dataIter
 
@@ -77,7 +77,7 @@ def client():
         stateInClient.Net.net.eval()
 
         contentSendToServer = dict(net=stateInClient.Net, trainTime=trainTime, trainAcc=trainAcc)
-        contentSendToServer = pickle.dumps(contentSendToServer)  # 上传的模型需要先序列化，
+        contentSendToServer = pickle.dumps(contentSendToServer)  # 上传的模型需要先序列化，因为通过multiprocessing.Queue()直接传递模型会有问题
 
         content = create_content(name, 'upload', contentSendToServer)
         message.content = content

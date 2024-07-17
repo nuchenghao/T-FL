@@ -1,12 +1,16 @@
 {
-  "algorithm": "FedAvg",
-  "data": "FashionMNIST",
-  "model": "ResNet-18",
-  "totalEpoches": 5,
-  "lr": 0.01,
-  "batchSize": 256,
-  "totalEpochesInServer": 0,
-  "totalEpochesInClient": 1,
-  "loss": "CrossEntropyLoss",
-  "optimizer": "SGD"
+  "project": "FedAvg",
+  "experiment_name": "pure fedavg test2",
+  "description": "pure fedavg on total 15 clients and choose 5 clients each time",
+  "config": {
+    "data": "FashionMNIST",
+    "model": "ResNet-18",
+    "totalEpoches": 10,
+    "lr": 0.01,
+    "batchSize": 256,
+    "totalEpochesInServer": 0,
+    "totalEpochesInClient": 1,
+    "loss": "CrossEntropyLoss",
+    "optimizer": "SGD"
+  }
 }

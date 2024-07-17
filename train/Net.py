@@ -18,7 +18,7 @@ class Net():
         self.init_weights = init_weights
         self.loss = nn.CrossEntropyLoss(reduction='none') if loss == 'CrossEntropyLoss' else None
         self.optimizer = torch.optim.SGD(self.net.parameters(),
-                                         lr=self.trainConfigJSON['lr']) if optimizer == "SGD" else None
+                                         lr=self.trainConfigJSON['config']['lr']) if optimizer == "SGD" else None
 
     def initNet(self):
         self.net.apply(self.init_weights)
@@ -78,18 +78,18 @@ class Net():
 
         if client:
             # client训练
-            numEpochs = self.trainConfigJSON["totalEpochesInClient"]
+            numEpochs = self.trainConfigJSON['config']["totalEpochesInClient"]
             device = "cpu"
         else:
             # 服务器预训练
-            numEpochs = self.trainConfigJSON["totalEpochesInServer"]
+            numEpochs = self.trainConfigJSON['config']["totalEpochesInServer"]
             device = "cuda:0"
 
         self.net.to(device)
         train_acc = 0
+        if isinstance(self.net, torch.nn.Module):
+            self.net.train()
         for epoch in range(numEpochs):
-            if isinstance(self.net, torch.nn.Module):
-                self.net.train()
             metric = self.Accumulator(3)
             for X, y in train_iter:
                 self.optimizer.zero_grad()
@@ -100,10 +100,10 @@ class Net():
                 self.optimizer.step()
                 metric.add(float(l.sum()), self.accuracy(y_hat, y), y.numel())
             train_acc = metric[1] / metric[2]
-            console.log(
-                Padding(f"{name}'s train accuracy in iteration {globalTrainIteration} is {train_acc * 100:.4f}%",
-                        style='bold red',
-                        pad=(0, 0, 0, 20)))
+        console.log(
+            Padding(f"{name}'s train accuracy in iteration {globalTrainIteration} is {train_acc * 100:.4f}%",
+                    style='bold red',
+                    pad=(0, 0, 0, 20)))  # 如果本地需要训练多次，取最后一次作为结果
         self.net.to('cpu')  # 防止server上聚合时出错
         return train_acc
 
@@ -121,9 +121,9 @@ class Net():
                 X, y = X.to(device), y.to(device)
                 metric.add(self.accuracy(self.net(X), y), self.size(y))
         test_acc = metric[0] / metric[1]
-        stateInServer.resultRecord.append((stateInServer.timer.stop('m'), test_acc))  # (分钟，精度)
+        totaltime = stateInServer.timer.stop("s")
         console.log(
             Padding(f"the test accuracy is {test_acc * 100:.4f}% in globalepoch {stateInServer.currentEpoch + 1}",
                     style='bold red', pad=(0, 0, 0, 4)))
         self.net.to('cpu')  # 防止下发时出错
-        return test_acc
+        return (totaltime, test_acc)
