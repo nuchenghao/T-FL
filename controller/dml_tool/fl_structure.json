@@ -1,0 +1,10 @@
+{
+  "node_list": [
+    {"name": "n1", "trainer_fraction": 0.5, "sync": 75},
+
+    {"name": "n2", "epoch": 1},
+    {"name": "n3", "epoch": 1},
+    {"name": "n4", "epoch": 1},
+    {"name": "p1", "epoch": 1}
+  ]
+}
