@@ -1,8 +1,10 @@
 import json
 import sys
 import socket
-import traceback
+import selectors
 import pickle
+
+
 from lib import libclient
 import argparse
 # 输出设置----------------------------------------------------------
@@ -33,6 +35,11 @@ sock.setblocking(False)
 sock.connect_ex(addr)
 message = libclient.Message(sock, None, name)
 
+# ---------------socket管理器------------------------------------
+sel = selectors.DefaultSelector()
+
+
+# -------------------------------------------------------
 
 def create_content(name, action, value):  # 这个就是上传的内容格式
 
@@ -47,7 +54,9 @@ def register():
     message.content = content
     writeThread = libclient.WriteThread(message)  # 发送注册信息
     writeThread.start()
-    writeThread.join()  # 等待读结束
+    writeThread.join()  # 等待写结束
+    sel.modify(sock, selectors.EVENT_READ, data=message)  # 注册为读事件；如果没有读事件发生，则阻塞
+    events = sel.select(timeout=None)  # 如果没有读事件，则一直阻塞
     readThread = libclient.ReadThread(message)  # 等待serve返回信息
     readThread.start()
     readThread.join()
@@ -84,6 +93,8 @@ def client():
         writeThread = libclient.WriteThread(message)
         writeThread.start()
         writeThread.join()
+        sel.modify(sock, selectors.EVENT_READ, data=message)  # 注册为读事件；
+        events = sel.select(timeout=None)  # 如果没有读事件，则一直阻塞
         readThread = libclient.ReadThread(message)
         readThread.start()
         readThread.join()
@@ -95,4 +106,5 @@ def client():
 
 
 if __name__ == "__main__":
+    sel.register(sock, selectors.EVENT_READ, data=message)
     client()
